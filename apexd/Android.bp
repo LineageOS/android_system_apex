@@ -1,3 +1,13 @@
+tidy_errors = [
+  "performance-faster-string-find",
+  "performance-for-range-copy",
+  "performance-implicit-conversion-in-loop",
+  "performance-move-const-arg",
+  "performance-move-constructor-init",
+  "performance-noexcept-move-constructor",
+  "performance-unnecessary-value-param",
+]
+
 cc_defaults {
   name: "apex_flags_defaults",
   cflags: [
@@ -20,6 +30,8 @@ cc_defaults {
     "-Wused-but-marked-unused",
   ],
   tidy: true,
+  tidy_checks: tidy_errors,
+  tidy_checks_as_errors: tidy_errors,
   tidy_flags: [
     "-format-style='file'",
     "--header-filter='system/apex/'",
@@ -83,9 +95,11 @@ cc_binary {
   static_libs: [
     "libapex",
     "libapexd",
+    "libapexd_checkpoint_vold",
     "libapexservice",
     "libavb",
     "libdm",
+    "libvold_binder",
   ],
   shared_libs: [
     "libselinux",
@@ -124,6 +138,18 @@ cc_library_static {
   export_include_dirs: ["."],
 }
 
+cc_library_static {
+  name: "libapexd_checkpoint_vold",
+  defaults: ["apex_defaults"],
+  srcs: [ "apexd_checkpoint_vold.cpp" ],
+  static_libs: [
+    "libbase",
+    "libutils",
+    "libvold_binder",
+  ],
+  export_include_dirs: ["."],
+}
+
 cc_defaults {
   name: "libapexservice-deps",
   shared_libs: [
@@ -147,6 +173,7 @@ cc_library_static {
   defaults: ["apex_defaults"],
   srcs: [
     "apex_file.cpp",
+    "apex_key.cpp",
     "apex_manifest.cpp",
     "apex_shim.cpp",
   ],
@@ -190,6 +217,7 @@ cc_test {
   data: [
     ":apex.apexd_test",
     ":apex.apexd_test_no_inst_key",
+    "apexd_testdata/com.android.apex.test_package.avbpubkey",
   ],
   srcs: [
     "apex_file_test.cpp",
@@ -243,6 +271,22 @@ genrule {
        "$(genDir)/apex.apexd_test_manifest_mismatch.apex"
 }
 
+genrule {
+  // Generates an apex with a corrupted filesystem image, which should cause
+  // dm-verity verification to fail
+  name: "gen_corrupt_apex",
+  out: ["apex.apexd_test_corrupt_apex.apex"],
+  srcs: [":apex.apexd_test"],
+  tools: ["soong_zip", "zipalign"],
+  cmd: "unzip -q $(in) -d $(genDir) && " +
+       "dd if=/dev/zero of=$(genDir)/apex_payload.img conv=notrunc bs=1024 seek=16 count=1 && " +
+       "$(location soong_zip) -d -C $(genDir) -D $(genDir) " +
+       "-s apex_manifest.json -s apex_payload.img -s apex_pubkey " +
+       "-o $(genDir)/unaligned.apex && " +
+       "$(location zipalign) -f 4096 $(genDir)/unaligned.apex " +
+       "$(genDir)/apex.apexd_test_corrupt_apex.apex"
+}
+
 cc_test {
   name: "apexservice_test",
   defaults: ["apex_defaults"],
@@ -259,8 +303,14 @@ cc_test {
     ":apex.apexd_test_postinstall",
     ":apex.apexd_test_prepostinstall.fail",
     ":gen_bad_apexes",
-    ":com.android.apex.cts.shim.v2",
+    ":gen_corrupt_apex",
     ":com.android.apex.cts.shim.v1",
+    ":com.android.apex.cts.shim.v2",
+    ":com.android.apex.cts.shim.v2_wrong_sha",
+    ":com.android.apex.cts.shim.v2_additional_file",
+    ":com.android.apex.cts.shim.v2_additional_folder",
+    ":com.android.apex.cts.shim.v2_with_pre_install_hook",
+    ":com.android.apex.cts.shim.v2_with_post_install_hook",
   ],
   srcs: ["apexservice_test.cpp"],
   host_supported: false,
@@ -270,7 +320,9 @@ cc_test {
     "libapex",
     "libapexd",
     "libavb",
+    "libdm",
     "libgmock",
+    "libvold_binder",
   ],
   shared_libs: [
     "libbinder",
@@ -281,17 +333,3 @@ cc_test {
   test_config: "apexservice_test_config.xml",
 }
 
-cc_test {
-  name: "apex_shim_test",
-  defaults: ["apex_defaults"],
-  data: [":apex.apexd_test"],
-  srcs: ["apex_shim_test.cpp"],
-  host_supported: true,
-  target: {
-    darwin: {
-      enabled: false,
-    },
-  },
-  static_libs: ["libapex"],
-  test_suites: ["device-tests"],
-}

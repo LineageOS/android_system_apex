@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
+/*
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,16 +12,20 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- -->
+ */
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="android.apex.broadcastreceiver">
-    <application>
-        <activity android:name=".MainActivity" >
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
+#pragma once
+
+#include <string>
+
+#include "status.h"
+#include "status_or.h"
+
+namespace android {
+namespace apex {
+
+Status collectApexKeys(bool scanExternalKeys = false);
+StatusOr<const std::string> getApexKey(const std::string& key_name);
+
+}  // namespace apex
+}  // namespace android

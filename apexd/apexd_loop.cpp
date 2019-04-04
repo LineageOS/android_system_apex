@@ -90,7 +90,7 @@ Status configureReadAhead(const std::string& device_path) {
   return Status::Success();
 }
 
-Status preAllocateLoopDevices(int num) {
+Status preAllocateLoopDevices(size_t num) {
   Status loopReady = WaitForFile("/dev/loop-control", 20s);
   if (!loopReady.Ok()) {
     return loopReady;
@@ -101,13 +101,19 @@ Status preAllocateLoopDevices(int num) {
     return Status::Fail(PStringLog() << "Failed to open loop-control");
   }
 
-  int i = num;
-  while (i-- > 0) {
-    int id = ioctl(ctl_fd.get(), LOOP_CTL_GET_FREE);
-    if (id == -1) {
-      return Status::Fail(PStringLog() << "Failed LOOP_CTL_GET_FREE");
+  // Assumption: loop device ID [0..num) is valid.
+  // This is because pre-allocation happens during bootstrap.
+  // Anyway Kernel pre-allocated loop devices
+  // as many as CONFIG_BLK_DEV_LOOP_MIN_COUNT,
+  // Within the amount of kernel-pre-allocation,
+  // LOOP_CTL_ADD will fail with EEXIST
+  for (size_t id = 0ul; id < num; ++id) {
+    int ret = ioctl(ctl_fd.get(), LOOP_CTL_ADD, id);
+    if (ret < 0 && errno != EEXIST) {
+      return Status::Fail(PStringLog() << "Failed LOOP_CTL_ADD");
     }
   }
+
   // Don't wait until the dev nodes are actually created, which
   // will delay the boot. By simply returing here, the creation of the dev
   // nodes will be done in parallel with other boot processes, and we
@@ -243,9 +249,12 @@ void DestroyLoopDevice(const std::string& path, const DestroyLoopFn& extra) {
 
 void destroyAllLoopDevices() {
   std::string root = "/dev/block/";
-  auto dirp =
-      std::unique_ptr<DIR, int (*)(DIR*)>(opendir(root.c_str()), closedir);
-  if (!dirp) {
+  StatusOr<std::vector<std::string>> loop_files =
+      ReadDir(root, [](const std::filesystem::directory_entry& entry) {
+        return StartsWith(entry.path().filename().string(), "loop");
+      });
+
+  if (!loop_files.Ok()) {
     PLOG(ERROR) << "Failed to open /dev/block/, can't destroy loop devices.";
     return;
   }
@@ -255,13 +264,9 @@ void destroyAllLoopDevices() {
     LOG(DEBUG) << "Tearing down stale loop device at " << path << " named "
                << id;
   };
-  struct dirent* de;
-  while ((de = readdir(dirp.get()))) {
-    auto test = std::string(de->d_name);
-    if (!StartsWith(test, "loop")) continue;
 
-    auto path = root + de->d_name;
-    DestroyLoopDevice(path, log_fn);
+  for (const std::string& full_path : *loop_files) {
+    DestroyLoopDevice(full_path, log_fn);
   }
 }
 

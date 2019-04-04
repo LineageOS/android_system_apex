@@ -19,6 +19,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_set>
 
 #include <android-base/logging.h>
 
@@ -32,10 +33,17 @@ class MountedApexDatabase {
   struct MountedApexData {
     std::string loop_name;  // Loop device used (fs path).
     std::string full_path;  // Full path to the apex file.
+    std::string mount_point;  // Path this apex is mounted on.
+    std::string device_name;  // Name of the dm verity device.
 
     MountedApexData() {}
-    MountedApexData(const std::string& loop_name, const std::string& full_path)
-        : loop_name(loop_name), full_path(full_path) {}
+    MountedApexData(const std::string& loop_name, const std::string& full_path,
+                    const std::string& mount_point,
+                    const std::string& device_name)
+        : loop_name(loop_name),
+          full_path(full_path),
+          mount_point(mount_point),
+          device_name(device_name) {}
 
     inline bool operator<(const MountedApexData& rhs) const {
       int compare_val = loop_name.compare(rhs.loop_name);
@@ -44,7 +52,19 @@ class MountedApexDatabase {
       } else if (compare_val > 0) {
         return false;
       }
-      return full_path < rhs.full_path;
+      compare_val = full_path.compare(rhs.full_path);
+      if (compare_val < 0) {
+        return true;
+      } else if (compare_val > 0) {
+        return false;
+      }
+      compare_val = mount_point.compare(rhs.mount_point);
+      if (compare_val < 0) {
+        return true;
+      } else if (compare_val > 0) {
+        return false;
+      }
+      return device_name < rhs.device_name;
     }
   };
 
@@ -57,6 +77,23 @@ class MountedApexDatabase {
         }
       }
       CHECK_LE(count, 1u) << apex_set.first;
+    }
+  }
+
+  inline void CheckUniqueLoopDm() {
+    std::unordered_set<std::string> loop_devices;
+    std::unordered_set<std::string> dm_devices;
+    for (const auto& apex_set : mounted_apexes_) {
+      for (const auto& pair : apex_set.second) {
+        if (pair.first.loop_name != "") {
+          CHECK(loop_devices.insert(pair.first.loop_name).second)
+              << "Duplicate loop device: " << pair.first.loop_name;
+        }
+        if (pair.first.device_name != "") {
+          CHECK(dm_devices.insert(pair.first.device_name).second)
+              << "Duplicate dm device: " << pair.first.device_name;
+        }
+      }
     }
   }
 
@@ -76,6 +113,7 @@ class MountedApexDatabase {
     CHECK(check_it.second);
 
     CheckAtMostOneLatest();
+    CheckUniqueLoopDm();
   }
 
   inline void RemoveMountedApex(const std::string& package,

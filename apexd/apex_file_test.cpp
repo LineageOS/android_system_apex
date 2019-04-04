@@ -24,6 +24,7 @@
 #include <ziparchive/zip_archive.h>
 
 #include "apex_file.h"
+#include "apex_key.h"
 
 static std::string testDataDir = android::base::GetExecutableDirectory() + "/";
 
@@ -81,7 +82,7 @@ TEST(ApexFileTest, VerifyApexVerity) {
   StatusOr<ApexFile> apexFile = ApexFile::Open(filePath);
   ASSERT_TRUE(apexFile.Ok()) << apexFile.ErrorMessage();
 
-  auto verity_or = apexFile->VerifyApexVerity({ "/system/etc/security/apex/" });
+  auto verity_or = apexFile->VerifyApexVerity();
   ASSERT_TRUE(verity_or.Ok()) << verity_or.ErrorMessage();
 
   const ApexVerityData& data = *verity_or;
@@ -89,7 +90,7 @@ TEST(ApexFileTest, VerifyApexVerity) {
   EXPECT_EQ(std::string("1772301d454698dd155205b7851959c625d8a3e6"
                         "d39360122693bad804b70007"),
             data.salt);
-  EXPECT_EQ(std::string("4a7916c3650edd81b961f6f387647625e7041be0"),
+  EXPECT_EQ(std::string("f6139829a01059be55b13e09c4fddbb5565a8626"),
             data.root_digest);
 }
 
@@ -105,13 +106,35 @@ TEST(ApexFileTest, VerifyApexVerityNoKeyDir) {
 }
 #endif
 
+// TODO(jiyong): re-enable this test. This test is disabled because the build
+// system now always bundles the public key that was used to sign the APEX.
+// In debuggable build, the bundled public key is used as the last fallback.
+// As a result, the verification is always successful (and thus test fails).
+// In order to re-enable this test, we have to manually create an APEX
+// where public key is not bundled.
+#if 0
 TEST(ApexFileTest, VerifyApexVerityNoKeyInst) {
   const std::string filePath = testDataDir + "apex.apexd_test_no_inst_key.apex";
   StatusOr<ApexFile> apexFile = ApexFile::Open(filePath);
   ASSERT_TRUE(apexFile.Ok()) << apexFile.ErrorMessage();
 
-  auto verity_or = apexFile->VerifyApexVerity({"/system/etc/security/apex/"});
+  auto verity_or = apexFile->VerifyApexVerity();
   ASSERT_FALSE(verity_or.Ok());
+}
+#endif
+
+TEST(ApexFileTest, GetBundledPublicKey) {
+  const std::string filePath = testDataDir + "apex.apexd_test.apex";
+  StatusOr<ApexFile> apexFile = ApexFile::Open(filePath);
+  ASSERT_TRUE(apexFile.Ok());
+
+  const std::string keyPath =
+      testDataDir + "apexd_testdata/com.android.apex.test_package.avbpubkey";
+  std::string keyContent;
+  ASSERT_TRUE(android::base::ReadFileToString(keyPath, &keyContent))
+      << "Failed to read " << keyPath;
+
+  EXPECT_EQ(keyContent, apexFile->GetBundledPublicKey());
 }
 
 }  // namespace
