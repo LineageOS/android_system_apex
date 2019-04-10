@@ -130,6 +130,17 @@ class ApexServiceTest : public ::testing::Test {
     return StatusOr<bool>::MakeError(status.exceptionMessage().c_str());
   }
 
+  StatusOr<std::vector<ApexInfo>> GetAllPackages() {
+    std::vector<ApexInfo> list;
+    android::binder::Status status = service_->getAllPackages(&list);
+    if (status.isOk()) {
+      return StatusOr<std::vector<ApexInfo>>(list);
+    }
+
+    return StatusOr<std::vector<ApexInfo>>::MakeError(
+        status.toString8().c_str());
+  }
+
   StatusOr<std::vector<ApexInfo>> GetActivePackages() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getActivePackages(&list);
@@ -139,6 +150,21 @@ class ApexServiceTest : public ::testing::Test {
 
     return StatusOr<std::vector<ApexInfo>>::MakeError(
         status.exceptionMessage().c_str());
+  }
+
+  StatusOr<std::vector<ApexInfo>> GetInactivePackages() {
+    std::vector<ApexInfo> list;
+    android::binder::Status status = service_->getAllPackages(&list);
+    list.erase(std::remove_if(
+                   list.begin(), list.end(),
+                   [](const ApexInfo& apexInfo) { return apexInfo.isActive; }),
+               list.end());
+    if (status.isOk()) {
+      return StatusOr<std::vector<ApexInfo>>(std::move(list));
+    }
+
+    return StatusOr<std::vector<ApexInfo>>::MakeError(
+        status.toString8().c_str());
   }
 
   StatusOr<ApexInfo> GetActivePackage(const std::string& name) {
@@ -151,14 +177,27 @@ class ApexServiceTest : public ::testing::Test {
     return StatusOr<ApexInfo>::MakeError(status.exceptionMessage().c_str());
   }
 
+  std::string GetPackageString(const ApexInfo& p) {
+    return p.packageName + "@" + std::to_string(p.versionCode) +
+           " [path=" + p.packagePath + "]";
+  }
+
+  std::vector<std::string> GetPackagesStrings(
+      const std::vector<ApexInfo>& list) {
+    std::vector<std::string> ret;
+    for (const ApexInfo& p : list) {
+      ret.push_back(GetPackageString(p));
+    }
+    return ret;
+  }
+
   std::vector<std::string> GetActivePackagesStrings() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getActivePackages(&list);
     if (status.isOk()) {
       std::vector<std::string> ret(list.size());
       for (const ApexInfo& p : list) {
-        ret.push_back(p.packageName + "@" + std::to_string(p.versionCode) +
-                      " [path=" + p.packagePath + "]");
+        ret.push_back(GetPackageString(p));
       }
       return ret;
     }
@@ -166,6 +205,21 @@ class ApexServiceTest : public ::testing::Test {
     std::vector<std::string> error;
     error.push_back("ERROR");
     return error;
+  }
+
+  StatusOr<std::vector<ApexInfo>> GetFactoryPackages() {
+    std::vector<ApexInfo> list;
+    android::binder::Status status = service_->getAllPackages(&list);
+    list.erase(
+        std::remove_if(list.begin(), list.end(),
+                       [](ApexInfo& apexInfo) { return !apexInfo.isFactory; }),
+        list.end());
+    if (status.isOk()) {
+      return StatusOr<std::vector<ApexInfo>>(std::move(list));
+    }
+
+    return StatusOr<std::vector<ApexInfo>>::MakeError(
+        status.toString8().c_str());
   }
 
   static std::vector<std::string> ListDir(const std::string& path) {
@@ -483,17 +537,20 @@ TEST_F(ApexServiceTest, StageSuccess) {
   EXPECT_TRUE(RegularFileExists(installer.test_installed_file));
 }
 
-// TODO(b/130013353): enable test after fixing the bug.
-TEST_F(ApexServiceTest, DISABLED_StageSuccessDoesNotLeakTempVerityDevices) {
+TEST_F(ApexServiceTest,
+       SubmitStagegSessionSuccessDoesNotLeakTempVerityDevices) {
   using android::dm::DeviceMapper;
 
-  PrepareTestApexForInstall installer(GetTestFile("apex.apexd_test.apex"));
+  PrepareTestApexForInstall installer(GetTestFile("apex.apexd_test.apex"),
+                                      "/data/app-staging/session_1543",
+                                      "staging_data_file");
   if (!installer.Prepare()) {
     return;
   }
 
+  ApexInfoList list;
   bool success;
-  ASSERT_TRUE(IsOk(service_->stagePackage(installer.test_file, &success)));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(1543, {}, &list, &success)));
   ASSERT_TRUE(success);
 
   std::vector<DeviceMapper::DmBlockDevice> devices;
@@ -505,18 +562,20 @@ TEST_F(ApexServiceTest, DISABLED_StageSuccessDoesNotLeakTempVerityDevices) {
   }
 }
 
-// TODO(b/130013353): enable test after fixing the bug.
-TEST_F(ApexServiceTest, DISABLED_StageFailDoesNotLeakTempVerityDevices) {
+TEST_F(ApexServiceTest, SubmitStagedSessionFailDoesNotLeakTempVerityDevices) {
   using android::dm::DeviceMapper;
 
   PrepareTestApexForInstall installer(
-      GetTestFile("apex.apexd_test_manifest_mismatch.apex"));
+      GetTestFile("apex.apexd_test_manifest_mismatch.apex"),
+      "/data/app-staging/session_239", "staging_data_file");
   if (!installer.Prepare()) {
     return;
   }
 
+  ApexInfoList list;
   bool success;
-  ASSERT_FALSE(IsOk(service_->stagePackage(installer.test_file, &success)));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(239, {}, &list, &success)));
+  ASSERT_FALSE(success);
 
   std::vector<DeviceMapper::DmBlockDevice> devices;
   DeviceMapper& dm = DeviceMapper::Instance();
@@ -776,6 +835,59 @@ TEST_F(ApexServiceActivationSuccessTest, GetActivePackage) {
   ASSERT_EQ(installer_->test_installed_file, active->packagePath);
 }
 
+TEST_F(ApexServiceTest, GetFactoryPackages) {
+  using ::android::base::StartsWith;
+  StatusOr<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
+  ASSERT_TRUE(IsOk(factoryPackages));
+  ASSERT_TRUE(factoryPackages->size() > 0);
+
+  for (const ApexInfo& package : *factoryPackages) {
+    ASSERT_TRUE(StartsWith(package.packagePath, kApexPackageSystemDir) ||
+                StartsWith(package.packagePath, kApexPackageProductDir));
+  }
+}
+
+TEST_F(ApexServiceTest, NoPackagesAreBothActiveAndInactive) {
+  StatusOr<std::vector<ApexInfo>> activePackages = GetActivePackages();
+  ASSERT_TRUE(IsOk(activePackages));
+  ASSERT_TRUE(activePackages->size() > 0);
+  StatusOr<std::vector<ApexInfo>> inactivePackages = GetInactivePackages();
+  ASSERT_TRUE(IsOk(inactivePackages));
+  std::vector<std::string> activePackagesStrings =
+      GetPackagesStrings(*activePackages);
+  std::vector<std::string> inactivePackagesStrings =
+      GetPackagesStrings(*inactivePackages);
+  std::sort(activePackagesStrings.begin(), activePackagesStrings.end());
+  std::sort(inactivePackagesStrings.begin(), inactivePackagesStrings.end());
+  std::vector<std::string> intersection;
+  std::set_intersection(
+      activePackagesStrings.begin(), activePackagesStrings.end(),
+      inactivePackagesStrings.begin(), inactivePackagesStrings.end(),
+      std::back_inserter(intersection));
+  ASSERT_EQ(intersection.size(), 0UL);
+}
+
+TEST_F(ApexServiceTest, GetAllPackages) {
+  StatusOr<std::vector<ApexInfo>> allPackages = GetAllPackages();
+  ASSERT_TRUE(IsOk(allPackages));
+  ASSERT_TRUE(allPackages->size() > 0);
+  StatusOr<std::vector<ApexInfo>> activePackages = GetActivePackages();
+  std::vector<std::string> activeStrings = GetPackagesStrings(*activePackages);
+  StatusOr<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
+  std::vector<std::string> factoryStrings =
+      GetPackagesStrings(*factoryPackages);
+  for (ApexInfo& apexInfo : *allPackages) {
+    std::string packageString = GetPackageString(apexInfo);
+    bool shouldBeActive = std::find(activeStrings.begin(), activeStrings.end(),
+                                    packageString) != activeStrings.end();
+    bool shouldBeFactory =
+        std::find(factoryStrings.begin(), factoryStrings.end(),
+                  packageString) != factoryStrings.end();
+    ASSERT_EQ(shouldBeActive, apexInfo.isActive);
+    ASSERT_EQ(shouldBeFactory, apexInfo.isFactory);
+  }
+}
+
 TEST_F(ApexServiceActivationSuccessTest, StageAlreadyActivePackageSameVersion) {
   ASSERT_TRUE(IsOk(service_->activatePackage(installer_->test_installed_file)))
       << GetDebugStr(installer_.get());
@@ -801,8 +913,7 @@ class ApexServiceDeactivationTest : public ApexServiceActivationSuccessTest {
   std::unique_ptr<PrepareTestApexForInstall> installer_;
 };
 
-// TODO(b/130013353): enable test after fixing the bug.
-TEST_F(ApexServiceActivationSuccessTest, DISABLED_DmDeviceTearDown) {
+TEST_F(ApexServiceActivationSuccessTest, DmDeviceTearDown) {
   std::string package_id =
       installer_->package + "@" + std::to_string(installer_->version);
 
@@ -1864,86 +1975,77 @@ TEST_F(ApexShimUpdateTest, UpdateToV2FailureWrongSHA512) {
   ASSERT_THAT(error_message, HasSubstr("has unexpected SHA512 hash"));
 }
 
-TEST_F(ApexShimUpdateTest, UpdateToV2FailureHasPreInstallHook) {
+TEST_F(ApexShimUpdateTest, SubmitStagedSesssionFailureHasPreInstallHook) {
   PrepareTestApexForInstall installer(
-      GetTestFile("com.android.apex.cts.shim.v2_with_pre_install_hook.apex"));
+      GetTestFile("com.android.apex.cts.shim.v2_with_pre_install_hook.apex"),
+      "/data/app-staging/session_23", "staging_data_file");
 
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
   }
 
+  ApexInfoList list;
   bool success;
-  const auto& status = service_->stagePackage(installer.test_file, &success);
-  ASSERT_FALSE(IsOk(status));
-  const std::string& error_message =
-      std::string(status.exceptionMessage().c_str());
-  ASSERT_THAT(
-      error_message,
-      HasSubstr("Shim apex is not allowed to have pre or post install hooks"));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(23, {}, &list, &success)));
+  ASSERT_FALSE(success);
 }
 
-TEST_F(ApexShimUpdateTest, UpdateToV2FailureHasPostInstallHook) {
+TEST_F(ApexShimUpdateTest, SubmitStagedSessionFailureHasPostInstallHook) {
   PrepareTestApexForInstall installer(
-      GetTestFile("com.android.apex.cts.shim.v2_with_post_install_hook.apex"));
+      GetTestFile("com.android.apex.cts.shim.v2_with_post_install_hook.apex"),
+      "/data/app-staging/session_43", "staging_data_file");
 
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
   }
 
+  ApexInfoList list;
   bool success;
-  const auto& status = service_->stagePackage(installer.test_file, &success);
-  ASSERT_FALSE(IsOk(status));
-  const std::string& error_message =
-      std::string(status.exceptionMessage().c_str());
-  ASSERT_THAT(
-      error_message,
-      HasSubstr("Shim apex is not allowed to have pre or post install hooks"));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(43, {}, &list, &success)));
+  ASSERT_FALSE(success);
 }
 
-TEST_F(ApexShimUpdateTest, UpdateToV2FailureAdditionalFile) {
+TEST_F(ApexShimUpdateTest, SubmitStagedSessionFailureAdditionalFile) {
   PrepareTestApexForInstall installer(
-      GetTestFile("com.android.apex.cts.shim.v2_additional_file.apex"));
+      GetTestFile("com.android.apex.cts.shim.v2_additional_file.apex"),
+      "/data/app-staging/session_41", "staging_data_file");
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
   }
+
+  ApexInfoList list;
   bool success;
-  const auto& status = service_->stagePackage(installer.test_file, &success);
-  ASSERT_FALSE(IsOk(status));
-  const std::string& error_message =
-      std::string(status.exceptionMessage().c_str());
-  ASSERT_THAT(
-      error_message,
-      HasSubstr(
-          "Illegal file "
-          "\"/apex/com.android.apex.cts.shim@2.tmp/etc/additional_file\""));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(41, {}, &list, &success)));
+  ASSERT_FALSE(success);
 }
 
-TEST_F(ApexShimUpdateTest, ApexShimActivationFailureAdditionalFolder) {
+TEST_F(ApexShimUpdateTest, SubmitStagedSessionFailureAdditionalFolder) {
   PrepareTestApexForInstall installer(
-      GetTestFile("com.android.apex.cts.shim.v2_additional_folder.apex"));
+      GetTestFile("com.android.apex.cts.shim.v2_additional_folder.apex"),
+      "/data/app-staging/session_42", "staging_data_file");
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
   }
+
+  ApexInfoList list;
   bool success;
-  const auto& status = service_->stagePackage(installer.test_file, &success);
-  ASSERT_FALSE(IsOk(status));
-  const std::string& error_message =
-      std::string(status.exceptionMessage().c_str());
-  ASSERT_THAT(error_message,
-              HasSubstr("\"/apex/com.android.apex.cts.shim@2.tmp/etc/"
-                        "additional_folder\" is not a file"));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(42, {}, &list, &success)));
+  ASSERT_FALSE(success);
 }
 
-TEST_F(ApexServiceTest, StageCorruptApexFails) {
+TEST_F(ApexServiceTest, SubmitStagedSessionCorruptApexFails) {
   PrepareTestApexForInstall installer(
-      GetTestFile("apex.apexd_test_corrupt_apex.apex"));
+      GetTestFile("apex.apexd_test_corrupt_apex.apex"),
+      "/data/app-staging/session_57", "staging_data_file");
 
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
   }
 
+  ApexInfoList list;
   bool success;
-  ASSERT_FALSE(IsOk(service_->stagePackage(installer.test_file, &success)));
+  ASSERT_TRUE(IsOk(service_->submitStagedSession(57, {}, &list, &success)));
+  ASSERT_FALSE(success);
 }
 
 class LogTestToLogcat : public ::testing::EmptyTestEventListener {
