@@ -33,6 +33,7 @@
 #include "status_or.h"
 #include "string_log.h"
 
+#include <ApexProperties.sysprop.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/macros.h>
@@ -866,11 +867,20 @@ Status BackupActivePackages() {
   return Status::Success();
 }
 
-Status DoRollback() {
+Status DoRollback(ApexSession& session) {
   if (gInFsCheckpointMode) {
     // We will roll back automatically when we reboot
     return Status::Success();
   }
+  auto scope_guard = android::base::make_scope_guard([&]() {
+    auto st = session.UpdateStateAndCommit(SessionState::ROLLBACK_FAILED);
+    LOG(DEBUG) << "Marking " << session << " as failed to rollback";
+    if (!st.Ok()) {
+      LOG(WARNING) << "Failed to mark session " << session
+                   << " as failed to rollback : " << st.ErrorMessage();
+    }
+  });
+
   auto backup_exists = PathExists(std::string(kApexBackupDir));
   if (!backup_exists.Ok()) {
     return backup_exists.ErrorStatus();
@@ -908,6 +918,7 @@ Status DoRollback() {
                         << kActiveApexPackagesDataDir);
   }
 
+  scope_guard.Disable();  // Rollback succeeded. Accept state.
   return Status::Success();
 }
 
@@ -919,6 +930,7 @@ Status RollbackStagedSession(ApexSession& session) {
 
 Status RollbackActivatedSession(ApexSession& session) {
   if (gInFsCheckpointMode) {
+    LOG(DEBUG) << "Checkpoint mode is enabled";
     // On checkpointing devices, our modifications on /data will be
     // automatically rolled back when we abort changes. Updating the session
     // state is pointless here, as it will be rolled back as well.
@@ -933,7 +945,7 @@ Status RollbackActivatedSession(ApexSession& session) {
                                     << " failed : " << status.ErrorMessage());
   }
 
-  status = DoRollback();
+  status = DoRollback(session);
   if (!status.Ok()) {
     return Status::Fail(StringLog() << "Rollback of session " << session
                                     << " failed : " << status.ErrorMessage());
@@ -972,7 +984,7 @@ Status ResumeRollback(ApexSession& session) {
     return backup_exists.ErrorStatus();
   }
   if (*backup_exists) {
-    auto rollback_status = DoRollback();
+    auto rollback_status = DoRollback(session);
     if (!rollback_status.Ok()) {
       return rollback_status;
     }
@@ -1083,11 +1095,20 @@ Status resumeRollbackIfNeeded() {
   return Status::Success();
 }
 
+static bool IsApexUpdatable() {
+  static bool updatable =
+      android::sysprop::ApexProperties::updatable().value_or(false);
+  return updatable;
+}
+
 Status activatePackageImpl(const ApexFile& apex_file) {
   const ApexManifest& manifest = apex_file.GetManifest();
 
   if (gBootstrap && !isBootstrapApex(apex_file)) {
     LOG(INFO) << "Skipped when bootstrapping";
+    return Status::Success();
+  } else if (!IsApexUpdatable() && !gBootstrap && isBootstrapApex(apex_file)) {
+    LOG(INFO) << "Package already activated in bootstrap";
     return Status::Success();
   }
 
@@ -1623,8 +1644,8 @@ Status rollbackStagedSessionIfAny() {
 Status rollbackActiveSession() {
   auto session = ApexSession::GetActiveSession();
   if (!session.Ok()) {
-    LOG(ERROR) << "Failed to get active session : " << session.ErrorMessage();
-    return DoRollback();
+    return Status::Fail(StringLog() << "Failed to get active session : "
+                                    << session.ErrorMessage());
   } else if (!session->has_value()) {
     return Status::Fail(
         "Rollback requested, when there are no active sessions.");
