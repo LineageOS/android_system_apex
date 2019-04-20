@@ -110,6 +110,9 @@ bool gInFsCheckpointMode = false;
 
 static constexpr size_t kLoopDeviceSetupAttempts = 3u;
 
+static const bool kUpdatable =
+    android::sysprop::ApexProperties::updatable().value_or(false);
+
 bool gBootstrap = false;
 static const std::vector<const std::string> kBootstrapApexes = {
     "com.android.runtime",
@@ -124,7 +127,7 @@ bool isBootstrapApex(const ApexFile& apex) {
 // Pre-allocate loop devices so that we don't have to wait for them
 // later when actually activating APEXes.
 Status preAllocateLoopDevices() {
-  auto scan = FindApexes({kApexPackageSystemDir, kApexPackageProductDir});
+  auto scan = FindApexes(kApexPackageBuiltinDirs);
   if (!scan.Ok()) {
     return scan.ErrorStatus();
   }
@@ -735,6 +738,12 @@ Status VerifyPackageInstall(const ApexFile& apex_file) {
   if (!verify_package_boot_status.Ok()) {
     return verify_package_boot_status;
   }
+  if (!kUpdatable) {
+    return Status::Fail(StringLog() << "Attempted to upgrade apex package "
+                                    << apex_file.GetPath()
+                                    << " on a device that doesn't support it");
+  }
+  StatusOr<ApexVerityData> verity_or = apex_file.VerifyApexVerity();
 
   constexpr const auto kSuccessFn = [](const std::string& _) {
     return Status::Success();
@@ -1108,19 +1117,13 @@ Status resumeRollbackIfNeeded() {
   return Status::Success();
 }
 
-static bool IsApexUpdatable() {
-  static bool updatable =
-      android::sysprop::ApexProperties::updatable().value_or(false);
-  return updatable;
-}
-
 Status activatePackageImpl(const ApexFile& apex_file) {
   const ApexManifest& manifest = apex_file.GetManifest();
 
   if (gBootstrap && !isBootstrapApex(apex_file)) {
     LOG(INFO) << "Skipped when bootstrapping";
     return Status::Success();
-  } else if (!IsApexUpdatable() && !gBootstrap && isBootstrapApex(apex_file)) {
+  } else if (!kUpdatable && !gBootstrap && isBootstrapApex(apex_file)) {
     LOG(INFO) << "Package already activated in bootstrap";
     return Status::Success();
   }
@@ -1244,27 +1247,13 @@ std::unordered_map<std::string, uint64_t> GetActivePackagesMap() {
 
 std::vector<ApexFile> getFactoryPackages() {
   std::vector<ApexFile> ret;
-  auto all_system_factory_apex_files =
-      FindApexFilesByName(kApexPackageSystemDir, /* include_dirs=*/false);
-  if (!all_system_factory_apex_files.Ok()) {
-    LOG(ERROR) << all_system_factory_apex_files.ErrorMessage();
-    return ret;
-  }
-  for (const std::string& path : *all_system_factory_apex_files) {
-    StatusOr<ApexFile> apex_file = ApexFile::Open(path);
-    if (!apex_file.Ok()) {
-      LOG(ERROR) << apex_file.ErrorMessage();
-    } else {
-      ret.emplace_back(std::move(*apex_file));
+  for (const auto& dir : kApexPackageBuiltinDirs) {
+    auto apex_files = FindApexFilesByName(dir, /* include_dirs=*/false);
+    if (!apex_files.Ok()) {
+      LOG(ERROR) << apex_files.ErrorMessage();
+      return ret;
     }
-  }
-
-  auto all_product_factory_apex_files =
-      FindApexFilesByName(kApexPackageProductDir, /* include_dirs=*/false);
-  if (!all_product_factory_apex_files.Ok()) {
-    LOG(INFO) << all_product_factory_apex_files.ErrorMessage();
-  } else {
-    for (const std::string& path : *all_product_factory_apex_files) {
+    for (const std::string& path : *apex_files) {
       StatusOr<ApexFile> apex_file = ApexFile::Open(path);
       if (!apex_file.Ok()) {
         LOG(ERROR) << apex_file.ErrorMessage();
@@ -1693,7 +1682,7 @@ int onBootstrap() {
                << preAllocate.ErrorMessage();
   }
 
-  Status status = collectApexKeys();
+  Status status = collectApexKeys({kApexPackageSystemDir});
   if (!status.Ok()) {
     LOG(ERROR) << "Failed to collect APEX keys : " << status.ErrorMessage();
     return 1;
@@ -1751,7 +1740,7 @@ void onStart(CheckpointInterface* checkpoint_service) {
     }
   }
 
-  Status status = collectApexKeys();
+  Status status = collectApexKeys(kApexPackageBuiltinDirs);
   if (!status.Ok()) {
     LOG(ERROR) << "Failed to collect APEX keys : " << status.ErrorMessage();
     return;
@@ -1778,9 +1767,9 @@ void onStart(CheckpointInterface* checkpoint_service) {
     }
   }
 
-  for (auto dir : {kApexPackageSystemDir, kApexPackageProductDir}) {
+  for (const auto& dir : kApexPackageBuiltinDirs) {
     // TODO(b/123622800): if activation failed, rollback and reboot.
-    status = scanPackagesDirAndActivate(dir);
+    status = scanPackagesDirAndActivate(dir.c_str());
     if (!status.Ok()) {
       // This should never happen. Like **really** never.
       // TODO: should we kill apexd in this case?
@@ -1892,6 +1881,34 @@ Status markStagedSessionSuccessful(const int session_id) {
   } else {
     return Status::Fail(StringLog() << "Session " << *session
                                     << " can not be marked successful");
+  }
+}
+
+// Find dangling mounts and unmount them.
+// If one is on /data/apex/active, remove it.
+void unmountDanglingMounts() {
+  std::multimap<std::string, MountedApexData> danglings;
+  gMountedApexes.ForallMountedApexes([&](const std::string& package,
+                                         const MountedApexData& data,
+                                         bool latest) {
+    if (!latest) {
+      danglings.insert({package, data});
+    }
+  });
+
+  for (const auto& [package, data] : danglings) {
+    const std::string& path = data.full_path;
+    LOG(VERBOSE) << "Unmounting " << data.mount_point;
+    gMountedApexes.RemoveMountedApex(package, path);
+    if (auto st = Unmount(data); !st.Ok()) {
+      LOG(ERROR) << st.ErrorMessage();
+    }
+    if (StartsWith(path, kActiveApexPackagesDataDir)) {
+      LOG(VERBOSE) << "Deleting old APEX " << path;
+      if (unlink(path.c_str()) != 0) {
+        PLOG(ERROR) << "Failed to delete " << path;
+      }
+    }
   }
 }
 

@@ -90,8 +90,8 @@ Status updateScannedApexKeys(const std::vector<KeyPair>& key_pairs) {
 
 }  // namespace
 
-Status collectApexKeys(bool scanExternalKeys) {
-  for (const auto& dir : {kApexPackageSystemDir, kApexPackageProductDir}) {
+Status collectApexKeys(const std::vector<std::string>& dirs) {
+  for (const auto& dir : dirs) {
     StatusOr<std::vector<KeyPair>> key_pairs =
         collectEmbedddedApexKeysFromDir(dir);
     if (!key_pairs.Ok()) {
