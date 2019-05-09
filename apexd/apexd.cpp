@@ -145,11 +145,12 @@ Status preAllocateLoopDevices() {
     }
   }
 
-  // note: do not call preAllocateLoopDevices() if size == 0.
+  // note: do not call preAllocateLoopDevices() if size == 0
+  // or the device does not support updatable APEX.
   // For devices (e.g. ARC) which doesn't support loop-control
   // preAllocateLoopDevices() can cause problem when it tries
   // to access /dev/loop-control.
-  if (size == 0) {
+  if (size == 0 || !kUpdatable) {
     return Status::Success();
   }
   return loop::preAllocateLoopDevices(size);
@@ -396,12 +397,6 @@ StatusOr<MountedApexData> mountNonFlattened(const ApexFile& apex,
                                             bool verifyImage) {
   using StatusM = StatusOr<MountedApexData>;
   const std::string& full_path = apex.GetPath();
-
-  if (!kUpdatable) {
-    return StatusM::Fail(StringLog()
-                         << "Unable to mount non-flattened apex package "
-                         << full_path << " because device doesn't support it");
-  }
 
   loop::LoopbackDeviceUniqueFd loopbackDevice;
   for (size_t attempts = 1;; ++attempts) {
@@ -1317,8 +1312,6 @@ Status scanPackagesDirAndActivate(const char* apex_package_dir) {
   const auto& packages_with_code = GetActivePackagesMap();
 
   std::vector<std::string> failed_pkgs;
-  size_t activated_cnt = 0;
-  size_t skipped_cnt = 0;
   for (const std::string& name : *scan) {
     LOG(INFO) << "Found " << name;
 
@@ -1337,14 +1330,6 @@ Status scanPackagesDirAndActivate(const char* apex_package_dir) {
       LOG(INFO) << "Skipping activation of " << name
                 << " same package with higher version " << it->second
                 << " is already active";
-      skipped_cnt++;
-      continue;
-    }
-
-    if (!kUpdatable && !apex_file->IsFlattened()) {
-      LOG(INFO) << "Skipping activation of non-flattened apex package " << name
-                << " because device doesn't support it";
-      skipped_cnt++;
       continue;
     }
 
@@ -1353,8 +1338,6 @@ Status scanPackagesDirAndActivate(const char* apex_package_dir) {
       LOG(ERROR) << "Failed to activate " << name << " : "
                  << res.ErrorMessage();
       failed_pkgs.push_back(name);
-    } else {
-      activated_cnt++;
     }
   }
 
@@ -1364,8 +1347,7 @@ Status scanPackagesDirAndActivate(const char* apex_package_dir) {
                         << Join(failed_pkgs, ','));
   }
 
-  LOG(INFO) << "Activated " << activated_cnt
-            << " packages. Skipped: " << skipped_cnt;
+  LOG(INFO) << "Activated " << scan->size() << " packages";
   return Status::Success();
 }
 
