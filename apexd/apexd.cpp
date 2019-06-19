@@ -68,9 +68,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-using android::base::EndsWith;
 using android::base::Join;
-using android::base::ReadFullyAtOffset;
 using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::base::unique_fd;
@@ -246,10 +244,12 @@ Status DeleteVerityDevice(const std::string& name) {
 class DmVerityDevice {
  public:
   DmVerityDevice() : cleared_(true) {}
-  explicit DmVerityDevice(const std::string& name)
-      : name_(name), cleared_(false) {}
-  DmVerityDevice(const std::string& name, const std::string& dev_path)
-      : name_(name), dev_path_(dev_path), cleared_(false) {}
+  explicit DmVerityDevice(std::string name)
+      : name_(std::move(name)), cleared_(false) {}
+  DmVerityDevice(std::string name, std::string dev_path)
+      : name_(std::move(name)),
+        dev_path_(std::move(dev_path)),
+        cleared_(false) {}
 
   DmVerityDevice(DmVerityDevice&& other) noexcept
       : name_(std::move(other.name_)),
@@ -499,7 +499,7 @@ StatusOr<MountedApexData> MountPackageImpl(const ApexFile& apex,
     }
   }
 
-  unsigned long mountFlags = MS_NOATIME | MS_NODEV | MS_DIRSYNC | MS_RDONLY;
+  uint32_t mountFlags = MS_NOATIME | MS_NODEV | MS_DIRSYNC | MS_RDONLY;
   if (apex.GetManifest().nocode()) {
     mountFlags |= MS_NOEXEC;
   }
@@ -707,7 +707,7 @@ Status VerifyPackageInstall(const ApexFile& apex_file) {
   }
   StatusOr<ApexVerityData> verity_or = apex_file.VerifyApexVerity();
 
-  constexpr const auto kSuccessFn = [](const std::string& _) {
+  constexpr const auto kSuccessFn = [](const std::string& /*mount_point*/) {
     return Status::Success();
   };
   return RunVerifyFnInsideTempMount(apex_file, kSuccessFn);
