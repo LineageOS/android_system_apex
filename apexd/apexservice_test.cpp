@@ -52,7 +52,6 @@
 #include "apexd_session.h"
 #include "apexd_test_utils.h"
 #include "apexd_utils.h"
-#include "status_or.h"
 
 #include "session_state.pb.h"
 
@@ -67,6 +66,7 @@ using android::apex::testing::ApexInfoEq;
 using android::apex::testing::CreateSessionInfo;
 using android::apex::testing::IsOk;
 using android::apex::testing::SessionInfoEq;
+using android::base::Errorf;
 using android::base::Join;
 using android::base::StringPrintf;
 using ::testing::Contains;
@@ -118,43 +118,41 @@ class ApexServiceTest : public ::testing::Test {
 
   static bool IsSelinuxEnforced() { return 0 != security_getenforce(); }
 
-  StatusOr<bool> IsActive(const std::string& name, int64_t version) {
+  Result<bool> IsActive(const std::string& name, int64_t version) {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getActivePackages(&list);
     if (status.isOk()) {
       for (const ApexInfo& p : list) {
-        if (p.packageName == name && p.versionCode == version) {
-          return StatusOr<bool>(true);
+        if (p.moduleName == name && p.versionCode == version) {
+          return true;
         }
       }
-      return StatusOr<bool>(false);
+      return false;
     }
-    return StatusOr<bool>::MakeError(status.exceptionMessage().c_str());
+    return Error() << status.exceptionMessage().c_str();
   }
 
-  StatusOr<std::vector<ApexInfo>> GetAllPackages() {
+  Result<std::vector<ApexInfo>> GetAllPackages() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getAllPackages(&list);
     if (status.isOk()) {
-      return StatusOr<std::vector<ApexInfo>>(list);
+      return list;
     }
 
-    return StatusOr<std::vector<ApexInfo>>::MakeError(
-        status.toString8().c_str());
+    return Error() << status.toString8().c_str();
   }
 
-  StatusOr<std::vector<ApexInfo>> GetActivePackages() {
+  Result<std::vector<ApexInfo>> GetActivePackages() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getActivePackages(&list);
     if (status.isOk()) {
-      return StatusOr<std::vector<ApexInfo>>(list);
+      return list;
     }
 
-    return StatusOr<std::vector<ApexInfo>>::MakeError(
-        status.exceptionMessage().c_str());
+    return Error() << status.exceptionMessage().c_str();
   }
 
-  StatusOr<std::vector<ApexInfo>> GetInactivePackages() {
+  Result<std::vector<ApexInfo>> GetInactivePackages() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getAllPackages(&list);
     list.erase(std::remove_if(
@@ -162,26 +160,25 @@ class ApexServiceTest : public ::testing::Test {
                    [](const ApexInfo& apexInfo) { return apexInfo.isActive; }),
                list.end());
     if (status.isOk()) {
-      return StatusOr<std::vector<ApexInfo>>(std::move(list));
+      return list;
     }
 
-    return StatusOr<std::vector<ApexInfo>>::MakeError(
-        status.toString8().c_str());
+    return Error() << status.toString8().c_str();
   }
 
-  StatusOr<ApexInfo> GetActivePackage(const std::string& name) {
+  Result<ApexInfo> GetActivePackage(const std::string& name) {
     ApexInfo package;
     android::binder::Status status = service_->getActivePackage(name, &package);
     if (status.isOk()) {
-      return StatusOr<ApexInfo>(package);
+      return package;
     }
 
-    return StatusOr<ApexInfo>::MakeError(status.exceptionMessage().c_str());
+    return Error() << status.exceptionMessage().c_str();
   }
 
   std::string GetPackageString(const ApexInfo& p) {
-    return p.packageName + "@" + std::to_string(p.versionCode) +
-           " [path=" + p.packagePath + "]";
+    return p.moduleName + "@" + std::to_string(p.versionCode) +
+           " [path=" + p.moduleName + "]";
   }
 
   std::vector<std::string> GetPackagesStrings(
@@ -210,7 +207,7 @@ class ApexServiceTest : public ::testing::Test {
     return error;
   }
 
-  StatusOr<std::vector<ApexInfo>> GetFactoryPackages() {
+  Result<std::vector<ApexInfo>> GetFactoryPackages() {
     std::vector<ApexInfo> list;
     android::binder::Status status = service_->getAllPackages(&list);
     list.erase(
@@ -218,11 +215,10 @@ class ApexServiceTest : public ::testing::Test {
                        [](ApexInfo& apexInfo) { return !apexInfo.isFactory; }),
         list.end());
     if (status.isOk()) {
-      return StatusOr<std::vector<ApexInfo>>(std::move(list));
+      return list;
     }
 
-    return StatusOr<std::vector<ApexInfo>>::MakeError(
-        status.toString8().c_str());
+    return Error() << status.toString8().c_str();
   }
 
   static std::vector<std::string> ListDir(const std::string& path) {
@@ -248,8 +244,8 @@ class ApexServiceTest : public ::testing::Test {
       }
       ret.push_back(tmp.append(entry.path().filename()));
     });
-    CHECK(status.Ok()) << "Failed to list " << path << " : "
-                       << status.ErrorMessage();
+    CHECK(status.has_value())
+        << "Failed to list " << path << " : " << status.error();
     std::sort(ret.begin(), ret.end());
     return ret;
   }
@@ -302,8 +298,8 @@ class ApexServiceTest : public ::testing::Test {
 
       package = "";  // Explicitly mark as not initialized.
 
-      StatusOr<ApexFile> apex_file = ApexFile::Open(test);
-      if (!apex_file.Ok()) {
+      Result<ApexFile> apex_file = ApexFile::Open(test);
+      if (!apex_file) {
         return;
       }
 
@@ -319,10 +315,10 @@ class ApexServiceTest : public ::testing::Test {
       if (package.empty()) {
         // Failure in constructor. Redo work to get error message.
         auto fail_fn = [&]() {
-          StatusOr<ApexFile> apex_file = ApexFile::Open(test_input);
+          Result<ApexFile> apex_file = ApexFile::Open(test_input);
           ASSERT_FALSE(IsOk(apex_file));
-          ASSERT_TRUE(apex_file.Ok())
-              << test_input << " failed to load: " << apex_file.ErrorMessage();
+          ASSERT_TRUE(apex_file)
+              << test_input << " failed to load: " << apex_file.error();
         };
         fail_fn();
         return false;
@@ -438,7 +434,7 @@ bool RegularFileExists(const std::string& path) {
   return S_ISREG(buf.st_mode);
 }
 
-StatusOr<std::vector<std::string>> ReadEntireDir(const std::string& path) {
+Result<std::vector<std::string>> ReadEntireDir(const std::string& path) {
   static const auto kAcceptAll = [](auto /*entry*/) { return true; };
   return ReadDir(path, kAcceptAll);
 }
@@ -684,8 +680,7 @@ class ApexServiceActivationTest : public ApexServiceTest {
 
     {
       // Check package is not active.
-      StatusOr<bool> active =
-          IsActive(installer_->package, installer_->version);
+      Result<bool> active = IsActive(installer_->package, installer_->version);
       ASSERT_TRUE(IsOk(active));
       ASSERT_FALSE(*active);
     }
@@ -765,7 +760,7 @@ TEST_F(ApexServiceActivationSuccessTest, Activate) {
 
   {
     // Check package is active.
-    StatusOr<bool> active = IsActive(installer_->package, installer_->version);
+    Result<bool> active = IsActive(installer_->package, installer_->version);
     ASSERT_TRUE(IsOk(active));
     ASSERT_TRUE(*active) << Join(GetActivePackagesStrings(), ',');
   }
@@ -788,8 +783,8 @@ TEST_F(ApexServiceActivationSuccessTest, Activate) {
         }
         ret.emplace_back(entry.path().filename());
       });
-      CHECK(status.Ok()) << "Failed to list " << path << " : "
-                         << status.ErrorMessage();
+      CHECK(status.has_value())
+          << "Failed to list " << path << " : " << status.error();
       std::sort(ret.begin(), ret.end());
       return ret;
     };
@@ -812,50 +807,50 @@ TEST_F(ApexServiceActivationSuccessTest, GetActivePackages) {
   ASSERT_TRUE(IsOk(service_->activatePackage(installer_->test_installed_file)))
       << GetDebugStr(installer_.get());
 
-  StatusOr<std::vector<ApexInfo>> active = GetActivePackages();
+  Result<std::vector<ApexInfo>> active = GetActivePackages();
   ASSERT_TRUE(IsOk(active));
   ApexInfo match;
 
   for (const ApexInfo& info : *active) {
-    if (info.packageName == installer_->package) {
+    if (info.moduleName == installer_->package) {
       match = info;
       break;
     }
   }
 
-  ASSERT_EQ(installer_->package, match.packageName);
+  ASSERT_EQ(installer_->package, match.moduleName);
   ASSERT_EQ(installer_->version, static_cast<uint64_t>(match.versionCode));
-  ASSERT_EQ(installer_->test_installed_file, match.packagePath);
+  ASSERT_EQ(installer_->test_installed_file, match.modulePath);
 }
 
 TEST_F(ApexServiceActivationSuccessTest, GetActivePackage) {
   ASSERT_TRUE(IsOk(service_->activatePackage(installer_->test_installed_file)))
       << GetDebugStr(installer_.get());
 
-  StatusOr<ApexInfo> active = GetActivePackage(installer_->package);
+  Result<ApexInfo> active = GetActivePackage(installer_->package);
   ASSERT_TRUE(IsOk(active));
 
-  ASSERT_EQ(installer_->package, active->packageName);
+  ASSERT_EQ(installer_->package, active->moduleName);
   ASSERT_EQ(installer_->version, static_cast<uint64_t>(active->versionCode));
-  ASSERT_EQ(installer_->test_installed_file, active->packagePath);
+  ASSERT_EQ(installer_->test_installed_file, active->modulePath);
 }
 
 TEST_F(ApexServiceTest, GetFactoryPackages) {
   using ::android::base::StartsWith;
-  StatusOr<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
+  Result<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
   ASSERT_TRUE(IsOk(factoryPackages));
   ASSERT_TRUE(factoryPackages->size() > 0);
 
   for (const ApexInfo& package : *factoryPackages) {
-    ASSERT_TRUE(isPathForBuiltinApexes(package.packagePath));
+    ASSERT_TRUE(isPathForBuiltinApexes(package.modulePath));
   }
 }
 
 TEST_F(ApexServiceTest, NoPackagesAreBothActiveAndInactive) {
-  StatusOr<std::vector<ApexInfo>> activePackages = GetActivePackages();
+  Result<std::vector<ApexInfo>> activePackages = GetActivePackages();
   ASSERT_TRUE(IsOk(activePackages));
   ASSERT_TRUE(activePackages->size() > 0);
-  StatusOr<std::vector<ApexInfo>> inactivePackages = GetInactivePackages();
+  Result<std::vector<ApexInfo>> inactivePackages = GetInactivePackages();
   ASSERT_TRUE(IsOk(inactivePackages));
   std::vector<std::string> activePackagesStrings =
       GetPackagesStrings(*activePackages);
@@ -872,12 +867,12 @@ TEST_F(ApexServiceTest, NoPackagesAreBothActiveAndInactive) {
 }
 
 TEST_F(ApexServiceTest, GetAllPackages) {
-  StatusOr<std::vector<ApexInfo>> allPackages = GetAllPackages();
+  Result<std::vector<ApexInfo>> allPackages = GetAllPackages();
   ASSERT_TRUE(IsOk(allPackages));
   ASSERT_TRUE(allPackages->size() > 0);
-  StatusOr<std::vector<ApexInfo>> activePackages = GetActivePackages();
+  Result<std::vector<ApexInfo>> activePackages = GetActivePackages();
   std::vector<std::string> activeStrings = GetPackagesStrings(*activePackages);
-  StatusOr<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
+  Result<std::vector<ApexInfo>> factoryPackages = GetFactoryPackages();
   std::vector<std::string> factoryStrings =
       GetPackagesStrings(*factoryPackages);
   for (ApexInfo& apexInfo : *allPackages) {
@@ -925,21 +920,21 @@ TEST_F(ApexServiceActivationSuccessTest, DmDeviceTearDown) {
     auto& dm = dm::DeviceMapper::Instance();
     std::vector<dm::DeviceMapper::DmBlockDevice> devices;
     if (!dm.GetAvailableDevices(&devices)) {
-      return StatusOr<bool>::Fail("GetAvailableDevices failed");
+      return Result<bool>(Errorf("GetAvailableDevices failed"));
     }
     for (const auto& device : devices) {
       if (device.name() == name) {
-        return StatusOr<bool>(true);
+        return Result<bool>(true);
       }
     }
-    return StatusOr<bool>(false);
+    return Result<bool>(false);
   };
 
-#define ASSERT_FIND(type)                     \
-  {                                           \
-    StatusOr<bool> res = find_fn(package_id); \
-    ASSERT_TRUE(res.Ok());                    \
-    ASSERT_##type(*res);                      \
+#define ASSERT_FIND(type)                   \
+  {                                         \
+    Result<bool> res = find_fn(package_id); \
+    ASSERT_TRUE(res);                       \
+    ASSERT_##type(*res);                    \
   }
 
   ASSERT_FIND(FALSE);
@@ -990,12 +985,12 @@ class ApexServicePrePostInstallTest : public ApexServiceTest {
 
     // Ensure that the package is neither active nor mounted.
     for (const InstallerUPtr& installer : installers) {
-      StatusOr<bool> active = IsActive(installer->package, installer->version);
+      Result<bool> active = IsActive(installer->package, installer->version);
       ASSERT_TRUE(IsOk(active));
       EXPECT_FALSE(*active);
     }
     for (const InstallerUPtr& installer : installers) {
-      StatusOr<ApexFile> apex = ApexFile::Open(installer->test_input);
+      Result<ApexFile> apex = ApexFile::Open(installer->test_input);
       ASSERT_TRUE(IsOk(apex));
       std::string path =
           apexd_private::GetPackageMountPoint(apex->GetManifest());
@@ -1064,15 +1059,15 @@ TEST_F(ApexServiceTest, SubmitSingleSessionTestSuccess) {
   EXPECT_EQ(1u, list.apexInfos.size());
   ApexInfo match;
   for (const ApexInfo& info : list.apexInfos) {
-    if (info.packageName == installer.package) {
+    if (info.moduleName == installer.package) {
       match = info;
       break;
     }
   }
 
-  ASSERT_EQ(installer.package, match.packageName);
+  ASSERT_EQ(installer.package, match.moduleName);
   ASSERT_EQ(installer.version, static_cast<uint64_t>(match.versionCode));
-  ASSERT_EQ(installer.test_file, match.packagePath);
+  ASSERT_EQ(installer.test_file, match.modulePath);
 
   ApexSessionInfo session;
   ASSERT_TRUE(IsOk(service_->getStagedSessionInfo(123, &session)))
@@ -1211,18 +1206,18 @@ TEST_F(ApexServiceTest, SubmitMultiSessionTestSuccess) {
   bool package1_found = false;
   bool package2_found = false;
   for (const ApexInfo& info : list.apexInfos) {
-    if (info.packageName == installer.package) {
-      ASSERT_EQ(installer.package, info.packageName);
+    if (info.moduleName == installer.package) {
+      ASSERT_EQ(installer.package, info.moduleName);
       ASSERT_EQ(installer.version, static_cast<uint64_t>(info.versionCode));
-      ASSERT_EQ(installer.test_file, info.packagePath);
+      ASSERT_EQ(installer.test_file, info.modulePath);
       package1_found = true;
-    } else if (info.packageName == installer2.package) {
-      ASSERT_EQ(installer2.package, info.packageName);
+    } else if (info.moduleName == installer2.package) {
+      ASSERT_EQ(installer2.package, info.moduleName);
       ASSERT_EQ(installer2.version, static_cast<uint64_t>(info.versionCode));
-      ASSERT_EQ(installer2.test_file, info.packagePath);
+      ASSERT_EQ(installer2.test_file, info.modulePath);
       package2_found = true;
     } else {
-      FAIL() << "Unexpected package found " << info.packageName
+      FAIL() << "Unexpected package found " << info.moduleName
              << GetDebugStr(&installer) << GetDebugStr(&installer2);
     }
   }
@@ -1957,8 +1952,8 @@ class ApexShimUpdateTest : public ApexServiceTest {
     std::vector<ApexInfo> list;
     ASSERT_TRUE(IsOk(service_->getAllPackages(&list)));
     ApexInfo expected;
-    expected.packageName = "com.android.apex.cts.shim";
-    expected.packagePath = "/system/apex/com.android.apex.cts.shim.apex";
+    expected.moduleName = "com.android.apex.cts.shim";
+    expected.modulePath = "/system/apex/com.android.apex.cts.shim.apex";
     expected.versionCode = 1;
     expected.isFactory = true;
     expected.isActive = true;
