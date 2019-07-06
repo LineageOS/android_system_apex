@@ -97,6 +97,10 @@ class ApexServiceTest : public ::testing::Test {
 
  protected:
   void SetUp() override {
+    // TODO(b/136647373): Move this check to environment setup
+    if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+      GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+    }
     ASSERT_NE(nullptr, service_.get());
     ASSERT_NE(nullptr, vold_service_.get());
     android::binder::Status status =
@@ -494,8 +498,7 @@ TEST_F(ApexServiceTest, StageFailAccess) {
 // As a result, the verification is always successful (and thus test fails).
 // In order to re-enable this test, we have to manually create an APEX
 // where public key is not bundled.
-#if 0
-TEST_F(ApexServiceTest, StageFailKey) {
+TEST_F(ApexServiceTest, DISABLED_StageFailKey) {
   PrepareTestApexForInstall installer(
       GetTestFile("apex.apexd_test_no_inst_key.apex"));
   if (!installer.Prepare()) {
@@ -528,7 +531,6 @@ TEST_F(ApexServiceTest, StageFailKey) {
   const size_t npos = std::string::npos;
   EXPECT_TRUE((pos1 != npos && pos2 != npos) || pos3 != npos) << error;
 }
-#endif
 
 TEST_F(ApexServiceTest, StageSuccess) {
   PrepareTestApexForInstall installer(GetTestFile("apex.apexd_test.apex"));
@@ -668,6 +670,10 @@ class ApexServiceActivationTest : public ApexServiceTest {
       : stage_package(stage_package) {}
 
   void SetUp() override {
+    // TODO(b/136647373): Move this check to environment setup
+    if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+      GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+    }
     ApexServiceTest::SetUp();
     ASSERT_NE(nullptr, service_.get());
 
@@ -1149,16 +1155,9 @@ TEST_F(ApexServiceTest, SubmitSingleStagedSessionDeletesPreviousSessions) {
   ASSERT_THAT(sessions, UnorderedElementsAre(SessionInfoEq(new_session)));
 }
 
-// TODO(jiyong): re-enable this test. This test is disabled because the build
-// system now always bundles the public key that was used to sign the APEX.
-// In debuggable build, the bundled public key is used as the last fallback.
-// As a result, the verification is always successful (and thus test fails).
-// In order to re-enable this test, we have to manually create an APEX
-// where public key is not bundled.
-#if 0
 TEST_F(ApexServiceTest, SubmitSingleSessionTestFail) {
   PrepareTestApexForInstall installer(
-      GetTestFile("apex.apexd_test_no_inst_key.apex"),
+      GetTestFile("apex.apexd_test_corrupt_apex.apex"),
       "/data/app-staging/session_456", "staging_data_file");
   if (!installer.Prepare()) {
     FAIL() << GetDebugStr(&installer);
@@ -1179,7 +1178,6 @@ TEST_F(ApexServiceTest, SubmitSingleSessionTestFail) {
   expected.isUnknown = true;
   EXPECT_THAT(session, SessionInfoEq(expected));
 }
-#endif
 
 TEST_F(ApexServiceTest, SubmitMultiSessionTestSuccess) {
   // Parent session id: 10
@@ -1242,13 +1240,6 @@ TEST_F(ApexServiceTest, SubmitMultiSessionTestSuccess) {
   ASSERT_THAT(session, SessionInfoEq(expected));
 }
 
-// TODO(jiyong): re-enable this test. This test is disabled because the build
-// system now always bundles the public key that was used to sign the APEX.
-// In debuggable build, the bundled public key is used as the last fallback.
-// As a result, the verification is always successful (and thus test fails).
-// In order to re-enable this test, we have to manually create an APEX
-// where public key is not bundled.
-#if 0
 TEST_F(ApexServiceTest, SubmitMultiSessionTestFail) {
   // Parent session id: 11
   // Children session ids: 21 31
@@ -1256,7 +1247,7 @@ TEST_F(ApexServiceTest, SubmitMultiSessionTestFail) {
                                       "/data/app-staging/session_21",
                                       "staging_data_file");
   PrepareTestApexForInstall installer2(
-      GetTestFile("apex.apexd_test_no_inst_key.apex"),
+      GetTestFile("apex.apexd_test_corrupt_apex.apex"),
       "/data/app-staging/session_31", "staging_data_file");
   if (!installer.Prepare() || !installer2.Prepare()) {
     FAIL() << GetDebugStr(&installer) << GetDebugStr(&installer2);
@@ -1269,7 +1260,6 @@ TEST_F(ApexServiceTest, SubmitMultiSessionTestFail) {
       << GetDebugStr(&installer);
   ASSERT_FALSE(ret_value);
 }
-#endif
 
 TEST_F(ApexServiceTest, MarkStagedSessionReadyFail) {
   // We should fail if we ask information about a session we don't know.
@@ -1847,6 +1837,10 @@ static void ExecInMountNamespaceOf(pid_t pid,
 }
 
 TEST(ApexdTest, ApexdIsInSameMountNamespaceAsInit) {
+  // TODO(b/136647373): Move this check to environment setup
+  if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+    GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+  }
   std::string ns_apexd;
   std::string ns_init;
 
@@ -1872,10 +1866,10 @@ static const std::vector<const std::string> kEarlyProcesses = {
 };
 
 TEST(ApexdTest, EarlyProcessesAreInDifferentMountNamespace) {
+  // TODO(b/136647373): Move this check to environment setup
   if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
-    return;
+    GTEST_SKIP() << "Skipping test because device doesn't support APEX";
   }
-
   std::string ns_apexd;
 
   ExecInMountNamespaceOf(GetPidOf("apexd"), [&](pid_t /*pid*/) {
@@ -1895,6 +1889,10 @@ TEST(ApexdTest, EarlyProcessesAreInDifferentMountNamespace) {
 }
 
 TEST(ApexdTest, ApexIsAPrivateMountPoint) {
+  // TODO(b/136647373): Move this check to environment setup
+  if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+    GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+  }
   std::string mountinfo;
   ASSERT_TRUE(
       android::base::ReadFileToString("/proc/self/mountinfo", &mountinfo));
@@ -1919,6 +1917,10 @@ static const std::vector<const std::string> kEarlyApexes = {
 };
 
 TEST(ApexdTest, ApexesAreActivatedForEarlyProcesses) {
+  // TODO(b/136647373): Move this check to environment setup
+  if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+    GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+  }
   for (const auto& name : kEarlyProcesses) {
     pid_t pid = GetPidOf(name);
     const std::string path =
@@ -1946,6 +1948,10 @@ TEST(ApexdTest, ApexesAreActivatedForEarlyProcesses) {
 class ApexShimUpdateTest : public ApexServiceTest {
  protected:
   void SetUp() override {
+    // TODO(b/136647373): Move this check to environment setup
+    if (!android::base::GetBoolProperty("ro.apex.updatable", false)) {
+      GTEST_SKIP() << "Skipping test because device doesn't support APEX";
+    }
     ApexServiceTest::SetUp();
 
     // Assert that shim apex is pre-installed.
