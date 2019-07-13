@@ -22,7 +22,7 @@ import android.apex.ApexSessionInfo;
 
 interface IApexService {
    void submitStagedSession(int session_id, in int[] child_session_ids, out ApexInfoList packages);
-   boolean markStagedSessionReady(int session_id);
+   void markStagedSessionReady(int session_id);
    void markStagedSessionSuccessful(int session_id);
 
    ApexSessionInfo[] getSessions();
@@ -64,7 +64,7 @@ interface IApexService {
     * Not meant for use outside of testing. The call will not be
     * functional on user builds.
     */
-   boolean stagePackages(in @utf8InCpp List<String> package_tmp_paths);
+   void stagePackages(in @utf8InCpp List<String> package_tmp_paths);
    /**
     * Not meant for use outside of testing. The call will not be
     * functional on user builds.
