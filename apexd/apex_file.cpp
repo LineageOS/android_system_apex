@@ -85,10 +85,19 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   image_offset = entry.offset;
   image_size = entry.uncompressed_length;
 
-  ret = FindEntry(handle, kManifestFilename, &entry);
+  ret = FindEntry(handle, kManifestFilenamePb, &entry);
+  bool isJsonManifest = false;
   if (ret < 0) {
-    return Error() << "Could not find entry \"" << kManifestFilename
-                   << "\" in package " << path << ": " << ErrorCodeString(ret);
+    LOG(ERROR) << "Could not find entry \"" << kManifestFilenamePb
+               << "\" in package " << path << ": " << ErrorCodeString(ret);
+    LOG(ERROR) << "Falling back to JSON if present.";
+    isJsonManifest = true;
+    ret = FindEntry(handle, kManifestFilenameJson, &entry);
+    if (ret < 0) {
+      return Error() << "Could not find entry \"" << kManifestFilenameJson
+                     << "\" in package " << path << ": "
+                     << ErrorCodeString(ret);
+    }
   }
 
   uint32_t length = entry.uncompressed_length;
@@ -114,7 +123,12 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
     }
   }
 
-  Result<ApexManifest> manifest = ParseManifest(manifest_content);
+  Result<ApexManifest> manifest;
+  if (isJsonManifest) {
+    manifest = ParseManifestJson(manifest_content);
+  } else {
+    manifest = ParseManifest(manifest_content);
+  }
   if (!manifest) {
     return manifest.error();
   }
@@ -182,13 +196,10 @@ Result<std::unique_ptr<AvbFooter>> getAvbFooter(const ApexFile& apex,
   return footer;
 }
 
-Result<void> verifyPublicKey(const uint8_t* key, size_t length,
-                             std::string public_key_content) {
-  if (public_key_content.length() != length ||
-      memcmp(&public_key_content[0], key, length) != 0) {
-    return Errorf("Failed to compare the bundled public key with key");
-  }
-  return {};
+bool CompareKeys(const uint8_t* key, size_t length,
+                 const std::string& public_key_content) {
+  return public_key_content.length() == length &&
+         memcmp(&public_key_content[0], key, length) == 0;
 }
 
 Result<std::string> getPublicKeyName(const ApexFile& apex, const uint8_t* data,
@@ -240,29 +251,28 @@ Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
   }
 
   Result<const std::string> public_key = getApexKey(*key_name);
-  Result<void> st;
   if (public_key) {
     // TODO(b/115718846)
     // We need to decide whether we need rollback protection, and whether
     // we can use the rollback protection provided by libavb.
-    st = verifyPublicKey(pk, pk_len, *public_key);
+    if (!CompareKeys(pk, pk_len, *public_key)) {
+      return Error() << "Error verifying " << apex.GetPath() << ": "
+                     << "public key doesn't match the pre-installed one";
+    }
   } else if (kDebugAllowBundledKey) {
     // Failing to find the matching public key in the built-in partitions
     // is a hard error for non-debuggable build. For debuggable builds,
     // the public key bundled in the APEX itself is used as a fallback.
     LOG(WARNING) << "Verifying " << apex.GetPath() << " with the bundled key";
-    st = verifyPublicKey(pk, pk_len, apex.GetBundledPublicKey());
+    if (!CompareKeys(pk, pk_len, apex.GetBundledPublicKey())) {
+      return Error() << "Error verifying " << apex.GetPath() << ": "
+                     << "public key doesn't match the one bundled in the APEX";
+    }
   } else {
     return public_key.error();
   }
-
-  if (st) {
-    LOG(VERBOSE) << apex.GetPath() << ": public key matches.";
-    return st;
-  }
-
-  return Error() << "Error verifying " << apex.GetPath() << ": "
-                 << "couldn't verify public key: " << st.error();
+  LOG(VERBOSE) << apex.GetPath() << ": public key matches.";
+  return {};
 }
 
 Result<std::unique_ptr<uint8_t[]>> verifyVbMeta(const ApexFile& apex,
@@ -376,16 +386,17 @@ Result<ApexVerityData> ApexFile::VerifyApexVerity() const {
 
 Result<void> ApexFile::VerifyManifestMatches(
     const std::string& mount_path) const {
-  std::string manifest_content;
-  const std::string manifest_path = mount_path + "/" + kManifestFilename;
-
-  if (!android::base::ReadFileToString(manifest_path, &manifest_content)) {
-    return Error() << "Failed to read manifest file: " << manifest_path;
-  }
-
-  Result<ApexManifest> verifiedManifest = ParseManifest(manifest_content);
+  Result<ApexManifest> verifiedManifest =
+      ReadManifest(mount_path + "/" + kManifestFilenamePb);
   if (!verifiedManifest) {
-    return verifiedManifest.error();
+    LOG(ERROR) << "Could not read manifest from  " << mount_path << "/"
+               << kManifestFilenamePb << " : " << verifiedManifest.error();
+    // Fallback to Json manifest if present.
+    LOG(ERROR) << "Trying to find a JSON manifest";
+    verifiedManifest = ReadManifest(mount_path + "/" + kManifestFilenameJson);
+    if (!verifiedManifest) {
+      return verifiedManifest.error();
+    }
   }
 
   if (!MessageDifferencer::Equals(manifest_, *verifiedManifest)) {
