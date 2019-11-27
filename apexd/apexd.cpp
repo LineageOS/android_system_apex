@@ -766,22 +766,6 @@ Result<ApexFile> verifySessionDir(const int session_id) {
   return std::move((*verified)[0]);
 }
 
-Result<void> ClearSessions() {
-  auto sessions = ApexSession::GetSessions();
-  int cnt = 0;
-  for (ApexSession& session : sessions) {
-    Result<void> status = session.DeleteSession();
-    if (!status) {
-      return status;
-    }
-    cnt++;
-  }
-  if (cnt > 0) {
-    LOG(DEBUG) << "Deleted " << cnt << " sessions";
-  }
-  return {};
-}
-
 Result<void> DeleteBackup() {
   auto exists = PathExists(std::string(kApexBackupDir));
   if (!exists) {
@@ -854,19 +838,8 @@ Result<void> BackupActivePackages() {
   return {};
 }
 
-Result<void> DoRevert(ApexSession& session) {
-  if (gInFsCheckpointMode) {
-    // We will revert automatically when we reboot
-    return {};
-  }
-  auto scope_guard = android::base::make_scope_guard([&]() {
-    auto st = session.UpdateStateAndCommit(SessionState::REVERT_FAILED);
-    LOG(DEBUG) << "Marking " << session << " as failed to revert";
-    if (!st) {
-      LOG(WARNING) << "Failed to mark session " << session
-                   << " as failed to revert : " << st.error();
-    }
-  });
+Result<void> RestoreActivePackages() {
+  LOG(DEBUG) << "Initializing  restore of " << kActiveApexPackagesDataDir;
 
   auto backup_exists = PathExists(std::string(kApexBackupDir));
   if (!backup_exists) {
@@ -903,7 +876,6 @@ Result<void> DoRevert(ApexSession& session) {
                         << kActiveApexPackagesDataDir;
   }
 
-  scope_guard.Disable();  // Revert succeeded. Accept state.
   return {};
 }
 
@@ -911,74 +883,6 @@ Result<void> RevertStagedSession(ApexSession& session) {
   // If the session is staged, it hasn't been activated yet, and we just need
   // to update its state to prevent it from being activated later.
   return session.UpdateStateAndCommit(SessionState::REVERTED);
-}
-
-Result<void> RevertActivatedSession(ApexSession& session) {
-  if (gInFsCheckpointMode) {
-    LOG(DEBUG) << "Checkpoint mode is enabled";
-    // On checkpointing devices, our modifications on /data will be
-    // automatically reverted when we abort changes. Updating the session
-    // state is pointless here, as it will be reverted as well.
-    return {};
-  }
-
-  auto status = session.UpdateStateAndCommit(SessionState::REVERT_IN_PROGRESS);
-  if (!status) {
-    // TODO: should we continue with a revert?
-    return Error() << "Revert of session " << session
-                   << " failed : " << status.error();
-  }
-
-  status = DoRevert(session);
-  if (!status) {
-    return Error() << "Revert of session " << session
-                   << " failed : " << status.error();
-  }
-
-  status = session.UpdateStateAndCommit(SessionState::REVERTED);
-  if (!status) {
-    LOG(WARNING) << "Failed to mark session " << session
-                 << " as reverted : " << status.error();
-  }
-
-  return {};
-}
-
-Result<void> RevertSession(ApexSession& session) {
-  LOG(DEBUG) << "Initializing revert of " << session;
-
-  switch (session.GetState()) {
-    case SessionState::REVERT_IN_PROGRESS:
-      [[clang::fallthrough]];
-    case SessionState::REVERTED:
-      return {};
-    case SessionState::STAGED:
-      return RevertStagedSession(session);
-    case SessionState::ACTIVATED:
-      return RevertActivatedSession(session);
-    default:
-      return Error() << "Can't restore session " << session
-                     << " : session is in a wrong state";
-  }
-}
-
-Result<void> ResumeRevert(ApexSession& session) {
-  auto backup_exists = PathExists(std::string(kApexBackupDir));
-  if (!backup_exists) {
-    return backup_exists.error();
-  }
-  if (*backup_exists) {
-    auto revert_status = DoRevert(session);
-    if (!revert_status) {
-      return revert_status;
-    }
-  }
-  auto status = session.UpdateStateAndCommit(SessionState::REVERTED);
-  if (!status) {
-    LOG(WARNING) << "Failed to mark session " << session
-                 << " as reverted : " << status.error();
-  }
-  return {};
 }
 
 Result<void> UnmountPackage(const ApexFile& apex, bool allow_latest) {
@@ -1074,18 +978,12 @@ std::string GetActiveMountPoint(const ApexManifest& manifest) {
 }  // namespace apexd_private
 
 Result<void> resumeRevertIfNeeded() {
-  auto session = ApexSession::GetActiveSession();
-  if (!session) {
-    return session.error();
-  }
-  if (!session->has_value()) {
+  auto sessions =
+      ApexSession::GetSessionsInState(SessionState::REVERT_IN_PROGRESS);
+  if (sessions.empty()) {
     return {};
   }
-  if ((**session).GetState() == SessionState::REVERT_IN_PROGRESS) {
-    // This means that phone was rebooted during the revert. Resuming it.
-    return ResumeRevert(**session);
-  }
-  return {};
+  return revertActiveSessions();
 }
 
 Result<void> activatePackageImpl(const ApexFile& apex_file) {
@@ -1243,27 +1141,23 @@ Result<ApexFile> getActivePackage(const std::string& packageName) {
   return ErrnoError() << "Cannot find matching package for: " << packageName;
 }
 
-Result<void> abortActiveSession() {
-  auto session_or_none = ApexSession::GetActiveSession();
-  if (!session_or_none) {
-    return session_or_none.error();
+/**
+ * Abort individual staged session.
+ *
+ * Returns without error only if session was successfully aborted.
+ **/
+Result<void> abortStagedSession(int session_id) {
+  auto session = ApexSession::GetSession(session_id);
+  if (!session) {
+    return Error() << "No session found with id " << session_id;
   }
-  if (session_or_none->has_value()) {
-    auto& session = session_or_none->value();
-    LOG(DEBUG) << "Aborting active session " << session;
-    switch (session.GetState()) {
-      case SessionState::VERIFIED:
-        [[clang::fallthrough]];
-      case SessionState::STAGED:
-        return session.DeleteSession();
-      case SessionState::ACTIVATED:
-        return RevertActivatedSession(session);
-      default:
-        return Error() << "Session " << session << " can't be aborted";
-    }
-  } else {
-    LOG(DEBUG) << "There are no active sessions";
-    return {};
+  switch (session->GetState()) {
+    case SessionState::VERIFIED:
+      [[clang::fallthrough]];
+    case SessionState::STAGED:
+      return session->DeleteSession();
+    default:
+      return Error() << "Session " << *session << " can't be aborted";
   }
 }
 
@@ -1529,36 +1423,81 @@ Result<void> unstagePackages(const std::vector<std::string>& paths) {
   return {};
 }
 
-Result<void> revertStagedSessionIfAny() {
-  auto session = ApexSession::GetActiveSession();
-  if (!session) {
-    return session.error();
-  }
-  if (!session->has_value()) {
+void revertAllStagedSessions() {
+  auto sessions = ApexSession::GetSessionsInState(SessionState::STAGED);
+  if (sessions.empty()) {
     LOG(WARNING) << "No session to revert";
+    return;
+  }
+
+  for (auto& session : sessions) {
+    LOG(INFO) << "Reverting back session " << session;
+    auto st = RevertStagedSession(session);
+    if (!st) {
+      LOG(ERROR) << "Failed to revert staged session " << session << ": "
+                 << st.error();
+    }
+  }
+}
+
+/**
+ * During apex installation, staged sessions located in /data/apex/sessions
+ * mutate the active sessions in /data/apex/active. If some error occurs during
+ * installation of apex, we need to revert /data/apex/active to its original
+ * state and reboot.
+ *
+ * Also, we need to put staged sessions in /data/apex/sessions in REVERTED state
+ * so that they do not get activated on next reboot.
+ */
+Result<void> revertActiveSessions() {
+  if (gInFsCheckpointMode) {
+    LOG(DEBUG) << "Checkpoint mode is enabled";
+    // On checkpointing devices, our modifications on /data will be
+    // automatically reverted when we abort changes. Updating the session
+    // state is pointless here, as it will be reverted as well.
     return {};
   }
-  if ((*session)->GetState() == SessionState::STAGED) {
-    LOG(INFO) << "Reverting back session " << **session;
-    return RevertStagedSession(**session);
-  }
-  return Error() << "Can't revert " << **session
-                 << " because it is not in STAGED state";
-}
-
-Result<void> revertActiveSession() {
-  auto session = ApexSession::GetActiveSession();
-  if (!session) {
-    return Error() << "Failed to get active session : " << session.error();
-  } else if (!session->has_value()) {
+  auto activeSessions = ApexSession::GetActiveSessions();
+  if (activeSessions.empty()) {
     return Error() << "Revert requested, when there are no active sessions.";
-  } else {
-    return RevertSession(*(*session));
   }
+
+  for (auto& session : activeSessions) {
+    auto status =
+        session.UpdateStateAndCommit(SessionState::REVERT_IN_PROGRESS);
+    if (!status) {
+      // TODO: should we continue with a revert?
+      return Error() << "Revert of session " << session
+                     << " failed : " << status.error();
+    }
+  }
+
+  auto restoreStatus = RestoreActivePackages();
+  if (!restoreStatus) {
+    for (auto& session : activeSessions) {
+      auto st = session.UpdateStateAndCommit(SessionState::REVERT_FAILED);
+      LOG(DEBUG) << "Marking " << session << " as failed to revert";
+      if (!st) {
+        LOG(WARNING) << "Failed to mark session " << session
+                     << " as failed to revert : " << st.error();
+      }
+    }
+    return restoreStatus;
+  }
+
+  for (auto& session : activeSessions) {
+    auto status = session.UpdateStateAndCommit(SessionState::REVERTED);
+    if (!status) {
+      LOG(WARNING) << "Failed to mark session " << session
+                   << " as reverted : " << status.error();
+    }
+  }
+
+  return {};
 }
 
-Result<void> revertActiveSessionAndReboot() {
-  auto status = revertActiveSession();
+Result<void> revertActiveSessionsAndReboot() {
+  auto status = revertActiveSessions();
   if (!status) {
     return status;
   }
@@ -1700,11 +1639,7 @@ void onStart(CheckpointInterface* checkpoint_service) {
       LOG(INFO) << "Exceeded number of session retries ("
                 << kNumRetriesWhenCheckpointingEnabled
                 << "). Starting a revert";
-      Result<void> status = revertStagedSessionIfAny();
-      if (!status) {
-        LOG(ERROR) << "Failed to revert (as requested by fs checkpointing) : "
-                   << status.error();
-      }
+      revertAllStagedSessions();
     }
   }
 
@@ -1728,7 +1663,7 @@ void onStart(CheckpointInterface* checkpoint_service) {
   if (!status) {
     LOG(ERROR) << "Failed to activate packages from "
                << kActiveApexPackagesDataDir << " : " << status.error();
-    Result<void> revert_status = revertActiveSessionAndReboot();
+    Result<void> revert_status = revertActiveSessionsAndReboot();
     if (!revert_status) {
       // TODO: should we kill apexd in this case?
       LOG(ERROR) << "Failed to revert : " << revert_status.error();
@@ -1771,10 +1706,6 @@ Result<std::vector<ApexFile>> submitStagedSession(
     const int session_id, const std::vector<int>& child_session_ids) {
   using android::base::GetProperty;
   bool needsBackup = true;
-  Result<void> cleanup_status = ClearSessions();
-  if (!cleanup_status) {
-    return cleanup_status.error();
-  }
 
   if (gSupportsFsCheckpoints) {
     Result<void> checkpoint_status =

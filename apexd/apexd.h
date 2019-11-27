@@ -54,8 +54,8 @@ android::base::Result<void> markStagedSessionReady(const int session_id)
     WARN_UNUSED;
 android::base::Result<void> markStagedSessionSuccessful(const int session_id)
     WARN_UNUSED;
-android::base::Result<void> revertActiveSession();
-android::base::Result<void> revertActiveSessionAndReboot();
+android::base::Result<void> revertActiveSessions();
+android::base::Result<void> revertActiveSessionsAndReboot();
 
 android::base::Result<void> activatePackage(const std::string& full_path)
     WARN_UNUSED;
@@ -68,6 +68,7 @@ android::base::Result<ApexFile> getActivePackage(
 
 std::vector<ApexFile> getFactoryPackages();
 
+android::base::Result<void> abortStagedSession(const int session_id);
 android::base::Result<void> abortActiveSession();
 
 int onBootstrap();
