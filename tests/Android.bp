@@ -21,6 +21,17 @@ java_defaults {
 }
 
 java_test_host {
+    name: "adbd_e2e_tests",
+    srcs:  ["src/**/AdbdHostTest.java"],
+    defaults: ["apex_e2e_test_defaults"],
+    data: [
+        ":test_com.android.adbd",
+    ],
+    test_config: "adbd-e2e-tests.xml",
+    test_suites: ["general-tests"],
+}
+
+java_test_host {
     name: "timezone_data_e2e_tests",
     srcs:  ["src/**/TimezoneDataHostTest.java"],
     defaults: ["apex_e2e_test_defaults"],
@@ -268,6 +279,7 @@ java_test_host {
     data: [
         "testdata/trigger_watchdog.rc",
         "testdata/trigger_watchdog.sh",
+        "testdata/trigger_reboot.sh",
         ":com.android.apex.cts.shim.v2_prebuilt",
     ],
 }
