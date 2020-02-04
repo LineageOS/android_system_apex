@@ -35,6 +35,7 @@
 #include <android-base/strings.h>
 #include <cutils/android_reboot.h>
 
+#include "apex_constants.h"
 #include "string_log.h"
 
 using android::base::ErrnoError;
@@ -168,37 +169,6 @@ inline Result<void> DeleteDirContent(const std::string& path) {
   return {};
 }
 
-inline Result<void> ReplaceFiles(const std::string& from_path,
-                                 const std::string& to_path) {
-  namespace fs = std::filesystem;
-
-  std::error_code error_code;
-  fs::remove_all(to_path, error_code);
-  if (error_code) {
-    return Error() << "Failed to delete existing files at " << to_path << " : "
-                   << error_code.message();
-  }
-
-  auto deleter = [&] {
-    std::error_code error_code;
-    fs::remove_all(to_path, error_code);
-    if (error_code) {
-      LOG(ERROR) << "Failed to clean up files at " << to_path << " : "
-                 << error_code.message();
-    }
-  };
-  auto scope_guard = android::base::make_scope_guard(deleter);
-
-  // TODO(b/147425590): Ensure that file permissions and owners are preserved.
-  fs::copy(from_path, to_path, fs::copy_options::recursive, error_code);
-  if (error_code) {
-    return Error() << "Failed to copy  from [" << from_path << "] to ["
-                   << to_path << "] :" << error_code.message();
-  }
-  scope_guard.Disable();
-  return {};
-}
-
 inline Result<ino_t> get_path_inode(const std::string& path) {
   struct stat buf;
   memset(&buf, 0, sizeof(buf));
@@ -246,6 +216,20 @@ inline Result<void> WaitForFile(const std::string& path,
     has_slept = true;
   }
   return ErrnoError() << "wait for '" << path << "' timed out and took " << t;
+}
+
+inline Result<std::vector<std::string>> GetDeUserDirs() {
+  namespace fs = std::filesystem;
+  auto filter_fn = [](const std::filesystem::directory_entry& entry) {
+    std::error_code ec;
+    bool result = entry.is_directory(ec);
+    if (ec) {
+      LOG(ERROR) << "Failed to check is_directory : " << ec.message();
+      return false;
+    }
+    return result;
+  };
+  return ReadDir(kDeNDataDir, filter_fn);
 }
 
 }  // namespace apex

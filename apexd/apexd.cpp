@@ -27,6 +27,7 @@
 #include "apexd_loop.h"
 #include "apexd_prepostinstall.h"
 #include "apexd_prop.h"
+#include "apexd_rollback_utils.h"
 #include "apexd_session.h"
 #include "apexd_utils.h"
 #include "apexd_verity.h"
@@ -1195,42 +1196,62 @@ Result<void> restoreDataDirectory(const std::string& base_dir,
                    rollback_id, apex_name.c_str());
   auto to_path = StringPrintf("%s/%s/%s", base_dir.c_str(), kApexDataSubDir,
                               apex_name.c_str());
-  return ReplaceFiles(from_path, to_path);
+  const Result<void> result = ReplaceFiles(from_path, to_path);
+  if (!result) {
+    return result;
+  }
+  return RestoreconPath(to_path);
 }
 
-void snapshotOrRestoreIfNeeded(const ApexSession& session,
-                               const std::vector<std::string>& apexes) {
+void snapshotOrRestoreIfNeeded(const std::string& base_dir,
+                               const ApexSession& session) {
   if (session.HasRollbackEnabled()) {
-    for (const auto& apex : apexes) {
-      Result<ApexFile> apex_file = ApexFile::Open(apex);
-      if (!apex_file) {
-        LOG(ERROR) << "Cannot open apex for snapshot: " << apex;
-        continue;
-      }
-      auto apex_name = apex_file->GetManifest().name();
-      Result<void> result = snapshotDataDirectory(
-          kDeSysDataDir, session.GetRollbackId(), apex_name);
+    for (const auto& apex_name : session.GetApexNames()) {
+      Result<void> result =
+          snapshotDataDirectory(base_dir, session.GetRollbackId(), apex_name);
       if (!result) {
-        LOG(ERROR) << "Snapshot failed for " << apex << ": " << result.error();
+        LOG(ERROR) << "Snapshot failed for " << apex_name << ": "
+                   << result.error();
       }
     }
   } else if (session.IsRollback()) {
-    for (const auto& apex : apexes) {
-      Result<ApexFile> apex_file = ApexFile::Open(apex);
-      if (!apex_file) {
-        LOG(ERROR) << "Cannot open apex for restore of data: " << apex;
-        continue;
-      }
-      auto apex_name = apex_file->GetManifest().name();
+    for (const auto& apex_name : session.GetApexNames()) {
       // TODO: Back up existing files in case rollback is reverted.
-      Result<void> result = restoreDataDirectory(
-          kDeSysDataDir, session.GetRollbackId(), apex_name);
+      Result<void> result =
+          restoreDataDirectory(base_dir, session.GetRollbackId(), apex_name);
       if (!result) {
-        LOG(ERROR) << "Restore of data failed for " << apex << ": "
+        LOG(ERROR) << "Restore of data failed for " << apex_name << ": "
                    << result.error();
       }
     }
   }
+}
+
+void snapshotOrRestoreDeSysData() {
+  auto sessions = ApexSession::GetSessionsInState(SessionState::ACTIVATED);
+
+  for (const ApexSession& session : sessions) {
+    snapshotOrRestoreIfNeeded(kDeSysDataDir, session);
+  }
+}
+
+int snapshotOrRestoreDeUserData() {
+  auto user_dirs = GetDeUserDirs();
+
+  if (!user_dirs) {
+    LOG(ERROR) << "Error reading dirs " << user_dirs.error();
+    return 1;
+  }
+
+  auto sessions = ApexSession::GetSessionsInState(SessionState::ACTIVATED);
+
+  for (const ApexSession& session : sessions) {
+    for (const auto& user_dir : *user_dirs) {
+      snapshotOrRestoreIfNeeded(user_dir, session);
+    }
+  }
+
+  return 0;
 }
 
 Result<ino_t> snapshotCeData(const int user_id, const int rollback_id,
@@ -1278,6 +1299,36 @@ Result<void> migrateSessionsDirIfNeeded() {
     return Error() << "Failed to delete old sessions directory "
                    << error_code.message();
   }
+  return {};
+}
+
+Result<void> destroySnapshots(const std::string& base_dir,
+                              const int rollback_id) {
+  namespace fs = std::filesystem;
+  auto path = StringPrintf("%s/%s/%d", base_dir.c_str(), kApexSnapshotSubDir,
+                           rollback_id);
+
+  std::error_code error_code;
+  fs::remove_all(path, error_code);
+  if (error_code) {
+    return Error() << "Failed to delete snapshots at " << path << " : "
+                   << error_code.message();
+  }
+  return {};
+}
+
+Result<void> destroyDeSnapshots(const int rollback_id) {
+  destroySnapshots(kDeSysDataDir, rollback_id);
+
+  auto user_dirs = GetDeUserDirs();
+  if (!user_dirs) {
+    return Error() << "Error reading user dirs " << user_dirs.error();
+  }
+
+  for (const auto& user_dir : *user_dirs) {
+    destroySnapshots(user_dir, rollback_id);
+  }
+
   return {};
 }
 
@@ -1355,7 +1406,15 @@ void scanStagedSessionsDirAndStage() {
       continue;
     }
 
-    snapshotOrRestoreIfNeeded(session, apexes);
+    for (const auto& apex : apexes) {
+      // TODO: Avoid opening ApexFile repeatedly.
+      Result<ApexFile> apex_file = ApexFile::Open(apex);
+      if (!apex_file) {
+        LOG(ERROR) << "Cannot open apex file during staging: " << apex;
+        continue;
+      }
+      session.AddApexName(apex_file->GetManifest().name());
+    }
 
     const Result<void> result = stagePackages(apexes);
     if (!result) {
@@ -1759,6 +1818,9 @@ void onStart(CheckpointInterface* checkpoint_service) {
                  << status.error();
     }
   }
+
+  // Now that APEXes are mounted, snapshot or restore DE_sys data.
+  snapshotOrRestoreDeSysData();
 
   if (android::base::GetBoolProperty("ro.debuggable", false)) {
     status = monitorBuiltinDirs();
