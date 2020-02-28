@@ -1224,7 +1224,7 @@ Result<void> restoreDataDirectory(const std::string& base_dir,
   auto to_path = StringPrintf("%s/%s/%s", base_dir.c_str(), kApexDataSubDir,
                               apex_name.c_str());
   const Result<void> result = ReplaceFiles(from_path, to_path);
-  if (!result) {
+  if (!result.ok()) {
     return result;
   }
   return RestoreconPath(to_path);
@@ -1344,7 +1344,7 @@ Result<void> destroyDeSnapshots(const int rollback_id) {
   destroySnapshots(kDeSysDataDir, rollback_id);
 
   auto user_dirs = GetDeUserDirs();
-  if (!user_dirs) {
+  if (!user_dirs.ok()) {
     return Error() << "Error reading user dirs " << user_dirs.error();
   }
 
