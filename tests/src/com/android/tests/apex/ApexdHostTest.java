@@ -55,7 +55,7 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
             ITestDevice.ApexInfo testApex = new ITestDevice.ApexInfo(
                     "com.android.apex.test_package", 2L);
             assertThat(activeApexes).doesNotContain(testApex);
-            waitForFileDeleted("/data/apex/active/apexd_test_v2.apex", Duration.ofMinutes(1));
+            waitForFileDeleted("/data/apex/active/apexd_test_v2.apex", Duration.ofMinutes(3));
         } finally {
             getDevice().executeShellV2Command("rm /data/apex/active/apexd_test_v2.apex");
         }
@@ -74,7 +74,7 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
             ITestDevice.ApexInfo testApex = new ITestDevice.ApexInfo(
                     "com.android.apex.cts.shim", 2L);
             assertThat(activeApexes).doesNotContain(testApex);
-            waitForFileDeleted("/data/apex/active/" + testApexFile, Duration.ofMinutes(1));
+            waitForFileDeleted("/data/apex/active/" + testApexFile, Duration.ofMinutes(3));
         } finally {
             getDevice().executeShellV2Command("rm /data/apex/active/" + testApexFile);
         }
