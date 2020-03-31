@@ -98,7 +98,7 @@ using MountedApexData = MountedApexDatabase::MountedApexData;
 
 namespace {
 
-// These should be in-sync with system/sepolicy/public/property_contexts
+// These should be in-sync with system/sepolicy/private/property_contexts
 static constexpr const char* kApexStatusSysprop = "apexd.status";
 static constexpr const char* kApexStatusStarting = "starting";
 static constexpr const char* kApexStatusActivated = "activated";
