@@ -945,7 +945,6 @@ Result<void> activatePackageImpl(const ApexFile& apex_file) {
   const ApexManifest& manifest = apex_file.GetManifest();
 
   if (gBootstrap && !isBootstrapApex(apex_file)) {
-    LOG(INFO) << "Skipped when bootstrapping";
     return {};
   }
 
