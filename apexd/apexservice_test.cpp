@@ -2063,7 +2063,7 @@ TEST_F(ApexServiceTest, BackupActivePackagesZeroActivePackages) {
 
   // Make sure that /data/apex/active exists and is empty
   ASSERT_TRUE(
-      IsOk(createDirIfNeeded(std::string(kActiveApexPackagesDataDir), 0750)));
+      IsOk(createDirIfNeeded(std::string(kActiveApexPackagesDataDir), 0755)));
   auto active_pkgs = ReadEntireDir(kActiveApexPackagesDataDir);
   ASSERT_TRUE(IsOk(active_pkgs));
   ASSERT_EQ(0u, active_pkgs->size());
@@ -2171,7 +2171,7 @@ class ApexServiceRevertTest : public ApexServiceTest {
     // First check that /data/apex/active exists and has correct permissions.
     struct stat sd;
     ASSERT_EQ(0, stat(kActiveApexPackagesDataDir, &sd));
-    ASSERT_EQ(0750u, sd.st_mode & ALLPERMS);
+    ASSERT_EQ(0755u, sd.st_mode & ALLPERMS);
 
     // Now read content and check it contains expected values.
     auto active_pkgs = ReadEntireDir(kActiveApexPackagesDataDir);
@@ -2674,7 +2674,7 @@ class LogTestToLogcat : public ::testing::EmptyTestEventListener {
     std::string msg =
         StringPrintf("=== %s::%s (%s:%d)", test_info.test_case_name(),
                      test_info.name(), test_info.file(), test_info.line());
-    l(LogId::MAIN, LogSeverity::INFO, "apexservice_test", __FILE__, __LINE__,
+    l(LogId::MAIN, LogSeverity::INFO, "ApexTestCases", __FILE__, __LINE__,
       msg.c_str());
 #else
     UNUSED(test_info);
