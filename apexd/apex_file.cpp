@@ -51,11 +51,6 @@ namespace {
 
 constexpr const char* kImageFilename = "apex_payload.img";
 constexpr const char* kBundledPublicKeyFilename = "apex_pubkey";
-#ifdef DEBUG_ALLOW_BUNDLED_KEY
-constexpr const bool kDebugAllowBundledKey = true;
-#else
-constexpr const bool kDebugAllowBundledKey = false;
-#endif
 
 }  // namespace
 
@@ -139,8 +134,6 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
 
 namespace {
 
-static constexpr const char* kApexKeyProp = "apex.key";
-
 static constexpr int kVbMetaMaxSize = 64 * 1024;
 
 std::string bytes_to_hex(const uint8_t* bytes, size_t bytes_len) {
@@ -200,24 +193,6 @@ bool CompareKeys(const uint8_t* key, size_t length,
          memcmp(&public_key_content[0], key, length) == 0;
 }
 
-Result<std::string> getPublicKeyName(const ApexFile& apex, const uint8_t* data,
-                                     size_t length) {
-  size_t keyNameLen;
-  const char* keyName = avb_property_lookup(data, length, kApexKeyProp,
-                                            strlen(kApexKeyProp), &keyNameLen);
-  if (keyName == nullptr || keyNameLen == 0) {
-    return Error() << "Cannot find prop '" << kApexKeyProp << "' from "
-                   << apex.GetPath();
-  }
-
-  if (keyName != apex.GetManifest().name()) {
-    return Error() << "Key mismatch: apex name is '"
-                   << apex.GetManifest().name() << "'"
-                   << " but key name is '" << keyName << "'";
-  }
-  return keyName;
-}
-
 Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
                                    size_t length) {
   const uint8_t* pk;
@@ -243,12 +218,7 @@ Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
       return Errorf("Unknown vmbeta_image_verify return value");
   }
 
-  Result<std::string> key_name = getPublicKeyName(apex, data, length);
-  if (!key_name.ok()) {
-    return key_name.error();
-  }
-
-  Result<const std::string> public_key = getApexKey(*key_name);
+  Result<const std::string> public_key = getApexKey(apex.GetManifest().name());
   if (public_key.ok()) {
     // TODO(b/115718846)
     // We need to decide whether we need rollback protection, and whether
@@ -256,15 +226,6 @@ Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
     if (!CompareKeys(pk, pk_len, *public_key)) {
       return Error() << "Error verifying " << apex.GetPath() << ": "
                      << "public key doesn't match the pre-installed one";
-    }
-  } else if (kDebugAllowBundledKey) {
-    // Failing to find the matching public key in the built-in partitions
-    // is a hard error for non-debuggable build. For debuggable builds,
-    // the public key bundled in the APEX itself is used as a fallback.
-    LOG(WARNING) << "Verifying " << apex.GetPath() << " with the bundled key";
-    if (!CompareKeys(pk, pk_len, apex.GetBundledPublicKey())) {
-      return Error() << "Error verifying " << apex.GetPath() << ": "
-                     << "public key doesn't match the one bundled in the APEX";
     }
   } else {
     return public_key.error();
