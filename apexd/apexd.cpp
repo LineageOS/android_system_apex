@@ -1226,7 +1226,7 @@ Result<void> restoreDataDirectory(const std::string& base_dir,
       pre_restore ? kPreRestoreSuffix : "", apex_name.c_str());
   auto to_path = StringPrintf("%s/%s/%s", base_dir.c_str(), kApexDataSubDir,
                               apex_name.c_str());
-  const Result<void> result = ReplaceFiles(from_path, to_path);
+  Result<void> result = ReplaceFiles(from_path, to_path);
   if (!result.ok()) {
     return result;
   }
