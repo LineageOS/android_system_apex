@@ -908,14 +908,15 @@ Result<void> Unmount(const MountedApexData& data) {
   return android::apex::Unmount(data);
 }
 
-bool IsMounted(const std::string& name, const std::string& full_path) {
+bool IsMounted(const std::string& full_path) {
   bool found_mounted = false;
-  gMountedApexes.ForallMountedApexes(
-      name, [&](const MountedApexData& data, bool latest ATTRIBUTE_UNUSED) {
-        if (full_path == data.full_path) {
-          found_mounted = true;
-        }
-      });
+  gMountedApexes.ForallMountedApexes([&](const std::string&,
+                                         const MountedApexData& data,
+                                         [[maybe_unused]] bool latest) {
+    if (full_path == data.full_path) {
+      found_mounted = true;
+    }
+  });
   return found_mounted;
 }
 
@@ -1687,6 +1688,9 @@ Result<void> unstagePackages(const std::vector<std::string>& paths) {
   // temporary folder and restore state from it in case unstagePackages fails.
 
   for (const std::string& path : paths) {
+    if (isPathForBuiltinApexes(path)) {
+      return Error() << "Can't uninstall pre-installed apex " << path;
+    }
     if (access(path.c_str(), F_OK) != 0) {
       return ErrnoError() << "Can't access " << path;
     }
@@ -2116,9 +2120,14 @@ void RemoveOrphanedApexes() {
   for (const auto& path : *data_apexes) {
     auto apex = ApexFile::Open(path);
     if (!apex.ok()) {
-      LOG(DEBUG) << "Removing corrupt APEX " << path << " : " << apex.error();
-      if (unlink(path.c_str()) != 0) {
-        PLOG(ERROR) << "Failed to unlink " << path;
+      LOG(DEBUG) << "Failed to open APEX " << path << " : " << apex.error();
+      // before removing, double-check if the path is active or not
+      // just in case ApexFile::Open() fails with valid APEX
+      if (!apexd_private::IsMounted(path)) {
+        LOG(DEBUG) << "Removing corrupt APEX " << path;
+        if (unlink(path.c_str()) != 0) {
+          PLOG(ERROR) << "Failed to unlink " << path;
+        }
       }
       continue;
     }

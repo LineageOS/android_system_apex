@@ -2164,6 +2164,18 @@ TEST_F(ApexServiceTest, UnstagePackagesFail) {
               UnorderedElementsAre(installer1.test_installed_file));
 }
 
+TEST_F(ApexServiceTest, UnstagePackagesFailPreInstalledApex) {
+  auto status = service_->unstagePackages(
+      {"/system/apex/com.android.apex.cts.shim.apex"});
+  ASSERT_FALSE(IsOk(status));
+  const std::string& error_message =
+      std::string(status.exceptionMessage().c_str());
+  ASSERT_THAT(error_message,
+              HasSubstr("Can't uninstall pre-installed apex "
+                        "/system/apex/com.android.apex.cts.shim.apex"));
+  ASSERT_TRUE(RegularFileExists("/system/apex/com.android.apex.cts.shim.apex"));
+}
+
 class ApexServiceRevertTest : public ApexServiceTest {
  protected:
   void SetUp() override { ApexServiceTest::SetUp(); }

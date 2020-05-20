@@ -82,7 +82,13 @@ public class ApexRollbackTests extends BaseHostJUnit4Test {
     @Test
     public void testAutomaticBootLoopRecovery() throws Exception {
         assumeTrue("Device does not support updating APEX", mUtils.isApexUpdateSupported());
-
+        ITestDevice device = getDevice();
+        // Skip this test if there is already crashing process on device
+        boolean hasCrashingProcess =
+                device.getBooleanProperty("sys.init.updatable_crashing", false);
+        String crashingProcess = device.getProperty("sys.init.updatable_crashing_process_name");
+        assumeFalse(
+                "Device already has a crashing process: " + crashingProcess, hasCrashingProcess);
         File apexFile = mUtils.getTestFile("com.android.apex.cts.shim.v2.apex");
 
         // To simulate an apex update that causes a boot loop, we install a
@@ -92,7 +98,6 @@ public class ApexRollbackTests extends BaseHostJUnit4Test {
         // persist.debug.trigger_watchdog.apex is installed. If so,
         // trigger_watchdog.sh repeatedly kills the system server causing a
         // boot loop.
-        ITestDevice device = getDevice();
         assertThat(device.setProperty("persist.debug.trigger_watchdog.apex",
                 "com.android.apex.cts.shim@2")).isTrue();
         String error = device.installPackage(apexFile, false, "--wait");

@@ -196,14 +196,16 @@ public class ModuleTestUtils {
             return;
         }
 
+        final ITestDevice.ApexInfo shim = getShimApex();
+        if (shim.sourceDir.startsWith("/system")) {
+            CLog.i("Skipping uninstall of " + shim.sourceDir + ". Reason: pre-installed version");
+            return;
+        }
+        CLog.i("Uninstalling shim apex");
         final String errorMessage = mTest.getDevice().uninstallPackage(SHIM);
         if (errorMessage == null) {
-            CLog.i("Uninstalling shim apex");
             mTest.getDevice().reboot();
         } else {
-            // Most likely we tried to uninstall system version and failed. It should be fine to
-            // continue tests.
-            // TODO(b/140813980): use ApexInfo.sourceDir to decide whenever to issue an uninstall.
             CLog.w("Failed to uninstall shim APEX: " + errorMessage);
         }
         assertThat(getShimApex().versionCode).isEqualTo(1L);
