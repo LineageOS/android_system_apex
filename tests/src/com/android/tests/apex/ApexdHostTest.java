@@ -26,6 +26,8 @@ import com.android.tradefed.device.ITestDevice;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
 import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -42,6 +44,16 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
     private static final String SHIM_APEX_PATH = "/system/apex/com.android.apex.cts.shim.apex";
 
     private final ModuleTestUtils mTestUtils = new ModuleTestUtils(this);
+
+    @Before
+    public void setUp() throws Exception {
+        mTestUtils.uninstallShimApexIfNecessary();
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        mTestUtils.uninstallShimApexIfNecessary();
+    }
 
     @Test
     public void testOrphanedApexIsNotActivated() throws Exception {
