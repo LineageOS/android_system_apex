@@ -17,15 +17,19 @@ apexer_tools = [
       "aapt2",
       "avbtool",
       "e2fsdroid",
-      "merge_zips",
       "mke2fs",
       "resize2fs",
       "sefcontext_compile",
-      "soong_zip",
       "zipalign",
       // TODO(b/124476339) apex doesn't follow 'required' dependencies so we need to include this
       // manually for 'avbtool'.
       "fec",
+]
+
+// TODO(b/157110982): cannot specify "required" dependency on go binary
+apexer_go_tools = [
+      "merge_zips",
+      "soong_zip",
 ]
 
 python_library_host {
@@ -103,7 +107,7 @@ apex_test {
   manifest: "etc/manifest.json",
   ignore_system_library_special_case: true,
   key: "com.android.support.apexer.key",
-  binaries: apexer_tools,
+  binaries: apexer_tools + apexer_go_tools,
 }
 
 // TODO(b/148659029): this test can't run in TEST_MAPPING.

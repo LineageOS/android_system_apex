@@ -115,4 +115,11 @@ interface IApexService {
     * on user builds. Only root is allowed to call this method.
     */
    void remountPackages();
+   /**
+    * Forces apexd to recollect pre-installed data from the given |paths|.
+    *
+    * Not meant for use outside of testing. This call will not be functional
+    * on user builds. Only root is allowed to call this method.
+    */
+   void recollectPreinstalledData(in @utf8InCpp List<String> paths);
 }

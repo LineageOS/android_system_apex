@@ -330,3 +330,9 @@ cc_test {
   test_config: "flattened_apex_test_config.xml",
 }
 
+xsd_config {
+  name: "apex-info-list",
+  srcs: ["ApexInfoList.xsd"],
+  package_name: "com.android.apex",
+  api_dir: "apex-info-list-api",
+}

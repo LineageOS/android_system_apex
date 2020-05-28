@@ -43,6 +43,7 @@
 
 #include <android/apex/BnApexService.h>
 
+using android::base::Join;
 using android::base::Result;
 
 namespace android {
@@ -100,6 +101,8 @@ class ApexService : public BnApexService {
   BinderStatus destroyCeSnapshotsNotSpecified(
       int user_id, const std::vector<int>& retain_rollback_ids) override;
   BinderStatus remountPackages() override;
+  BinderStatus recollectPreinstalledData(
+      const std::vector<std::string>& paths) override;
 
   status_t dump(int fd, const Vector<String16>& args) override;
 
@@ -546,6 +549,26 @@ BinderStatus ApexService::remountPackages() {
     return root;
   }
   if (auto res = ::android::apex::remountPackages(); !res.ok()) {
+    return BinderStatus::fromExceptionCode(
+        BinderStatus::EX_SERVICE_SPECIFIC,
+        String8(res.error().message().c_str()));
+  }
+  return BinderStatus::ok();
+}
+
+BinderStatus ApexService::recollectPreinstalledData(
+    const std::vector<std::string>& paths) {
+  LOG(DEBUG) << "recollectPreinstalledData() received by ApexService, paths: "
+             << Join(paths, ',');
+  if (auto debug = CheckDebuggable("recollectPreinstalledData");
+      !debug.isOk()) {
+    return debug;
+  }
+  if (auto root = CheckCallerIsRoot("recollectPreinstalledData");
+      !root.isOk()) {
+    return root;
+  }
+  if (auto res = ::android::apex::collectPreinstalledData(paths); !res) {
     return BinderStatus::fromExceptionCode(
         BinderStatus::EX_SERVICE_SPECIFIC,
         String8(res.error().message().c_str()));

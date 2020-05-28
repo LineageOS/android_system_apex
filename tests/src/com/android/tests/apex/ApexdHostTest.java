@@ -21,6 +21,8 @@ import static com.google.common.truth.Truth.assertWithMessage;
 
 import static org.junit.Assume.assumeTrue;
 
+import com.android.apex.ApexInfo;
+import com.android.apex.XmlParser;
 import com.android.tests.util.ModuleTestUtils;
 import com.android.tradefed.device.ITestDevice;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
@@ -32,8 +34,11 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Host side integration tests for apexd.
@@ -206,6 +211,32 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
 
             getDevice().executeShellV2Command("rm /product/apex/apex.apexd_test_v3.apex");
             getDevice().executeShellV2Command("rm /data/apex/active/apex.apexd_test_v2_no_pb.apex");
+        }
+    }
+
+    @Test
+    public void testApexInfoListIsValid() throws Exception {
+        assumeTrue("Device does not support updating APEX", mTestUtils.isApexUpdateSupported());
+        assumeTrue("Device requires root", getDevice().isAdbRoot());
+
+        try (FileInputStream fis = new FileInputStream(
+                getDevice().pullFile("/apex/apex-info-list.xml"))) {
+            // #1 Data got from apexd via binder
+            Set<ITestDevice.ApexInfo> fromApexd = getDevice().getActiveApexes();
+            // #2 Data got from the xml file (key is the path)
+            Map<String, ApexInfo> fromXml = XmlParser.readApexInfoList(fis).getApexInfo().stream()
+                    .collect(Collectors.toMap(ApexInfo::getModulePath, ai -> ai));
+
+            // Make sure that all items in #1 are also in #2 and they are identical
+            for (ITestDevice.ApexInfo ai : fromApexd) {
+                ApexInfo apexFromXml = fromXml.get(ai.sourceDir);
+                assertWithMessage("APEX (" + ai.toString() + ") is not found in the list")
+                        .that(apexFromXml).isNotNull();
+                assertWithMessage("Version mismatch for APEX (" + ai.toString() + ")")
+                        .that(ai.versionCode).isEqualTo(apexFromXml.getVersionCode());
+                assertWithMessage("APEX (" + ai.toString() + ") is not active")
+                        .that(apexFromXml.getIsActive()).isTrue();
+            }
         }
     }
 }

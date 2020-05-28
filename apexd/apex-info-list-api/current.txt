@@ -1,0 +1,36 @@
+// Signature format: 2.0
+package com.android.apex {
+
+  public class ApexInfo {
+    ctor public ApexInfo();
+    method public boolean getIsActive();
+    method public boolean getIsFactory();
+    method public String getModuleName();
+    method public String getModulePath();
+    method public String getPreinstalledModulePath();
+    method public long getVersionCode();
+    method public String getVersionName();
+    method public void setIsActive(boolean);
+    method public void setIsFactory(boolean);
+    method public void setModuleName(String);
+    method public void setModulePath(String);
+    method public void setPreinstalledModulePath(String);
+    method public void setVersionCode(long);
+    method public void setVersionName(String);
+  }
+
+  public class ApexInfoList {
+    ctor public ApexInfoList();
+    method public java.util.List<com.android.apex.ApexInfo> getApexInfo();
+  }
+
+  public class XmlParser {
+    ctor public XmlParser();
+    method public static com.android.apex.ApexInfo readApexInfo(java.io.InputStream) throws javax.xml.datatype.DatatypeConfigurationException, java.io.IOException, org.xmlpull.v1.XmlPullParserException;
+    method public static com.android.apex.ApexInfoList readApexInfoList(java.io.InputStream) throws javax.xml.datatype.DatatypeConfigurationException, java.io.IOException, org.xmlpull.v1.XmlPullParserException;
+    method public static String readText(org.xmlpull.v1.XmlPullParser) throws java.io.IOException, org.xmlpull.v1.XmlPullParserException;
+    method public static void skip(org.xmlpull.v1.XmlPullParser) throws java.io.IOException, org.xmlpull.v1.XmlPullParserException;
+  }
+
+}
+

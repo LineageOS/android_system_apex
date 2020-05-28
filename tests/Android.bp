@@ -299,7 +299,10 @@ java_test_host {
 
 java_test_host {
     name: "apexd_host_tests",
-    srcs:  ["src/**/ApexdHostTest.java"],
+    srcs:  [
+        "src/**/ApexdHostTest.java",
+        ":apex-info-list",
+    ],
     libs: ["tradefed"],
     static_libs: [
         "module_test_util",
