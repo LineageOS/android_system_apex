@@ -36,9 +36,9 @@ interface IApexService {
 
    /**
     * Copies the CE apex data directory for the given user to the backup
-    * location, and returns the inode of the snapshot directory.
+    * location.
     */
-   long snapshotCeData(int user_id, int rollback_id, in @utf8InCpp String apex_name);
+   void snapshotCeData(int user_id, int rollback_id, in @utf8InCpp String apex_name);
 
    /**
     * Restores the snapshot of the CE apex data directory for the given user and

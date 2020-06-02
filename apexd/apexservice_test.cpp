@@ -841,18 +841,10 @@ TEST_F(ApexServiceTest, SnapshotCeData) {
   ASSERT_TRUE(
       RegularFileExists("/data/misc_ce/0/apexdata/apex.apexd_test/hello.txt"));
 
-  int64_t result;
-  service_->snapshotCeData(0, 123456, "apex.apexd_test", &result);
+  service_->snapshotCeData(0, 123456, "apex.apexd_test");
 
   ASSERT_TRUE(RegularFileExists(
       "/data/misc_ce/0/apexrollback/123456/apex.apexd_test/hello.txt"));
-
-  // Check that the return value is the inode of the snapshot directory.
-  struct stat buf;
-  memset(&buf, 0, sizeof(buf));
-  ASSERT_EQ(0,
-            stat("/data/misc_ce/0/apexrollback/123456/apex.apexd_test", &buf));
-  ASSERT_EQ(int64_t(buf.st_ino), result);
 }
 
 TEST_F(ApexServiceTest, RestoreCeData) {

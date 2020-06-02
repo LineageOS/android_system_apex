@@ -1349,17 +1349,10 @@ int snapshotOrRestoreDeUserData() {
   return 0;
 }
 
-Result<ino_t> snapshotCeData(const int user_id, const int rollback_id,
-                             const std::string& apex_name) {
+Result<void> snapshotCeData(const int user_id, const int rollback_id,
+                            const std::string& apex_name) {
   auto base_dir = StringPrintf("%s/%d", kCeDataDir, user_id);
-  Result<void> result = snapshotDataDirectory(base_dir, rollback_id, apex_name);
-  if (!result.ok()) {
-    return result.error();
-  }
-  auto ce_snapshot_path =
-      StringPrintf("%s/%s/%d/%s", base_dir.c_str(), kApexSnapshotSubDir,
-                   rollback_id, apex_name.c_str());
-  return get_path_inode(ce_snapshot_path);
+  return snapshotDataDirectory(base_dir, rollback_id, apex_name);
 }
 
 Result<void> restoreCeData(const int user_id, const int rollback_id,

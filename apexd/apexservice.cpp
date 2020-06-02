@@ -93,8 +93,7 @@ class ApexService : public BnApexService {
   BinderStatus revertActiveSessions() override;
   BinderStatus resumeRevertIfNeeded() override;
   BinderStatus snapshotCeData(int user_id, int rollback_id,
-                              const std::string& apex_name,
-                              int64_t* _aidl_return) override;
+                              const std::string& apex_name) override;
   BinderStatus restoreCeData(int user_id, int rollback_id,
                              const std::string& apex_name) override;
   BinderStatus destroyDeSnapshots(int rollback_id) override;
@@ -489,17 +488,15 @@ BinderStatus ApexService::resumeRevertIfNeeded() {
 }
 
 BinderStatus ApexService::snapshotCeData(int user_id, int rollback_id,
-                                         const std::string& apex_name,
-                                         int64_t* _aidl_return) {
+                                         const std::string& apex_name) {
   LOG(DEBUG) << "snapshotCeData() received by ApexService.";
-  Result<ino_t> res =
+  Result<void> res =
       ::android::apex::snapshotCeData(user_id, rollback_id, apex_name);
   if (!res.ok()) {
     return BinderStatus::fromExceptionCode(
         BinderStatus::EX_SERVICE_SPECIFIC,
         String8(res.error().message().c_str()));
   }
-  *_aidl_return = static_cast<uint64_t>(*res);
   return BinderStatus::ok();
 }
 

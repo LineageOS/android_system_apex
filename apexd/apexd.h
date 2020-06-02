@@ -75,9 +75,9 @@ std::vector<ApexFile> getFactoryPackages();
 android::base::Result<void> abortStagedSession(const int session_id);
 android::base::Result<void> abortActiveSession();
 
-android::base::Result<ino_t> snapshotCeData(const int user_id,
-                                            const int rollback_id,
-                                            const std::string& apex_name);
+android::base::Result<void> snapshotCeData(const int user_id,
+                                           const int rollback_id,
+                                           const std::string& apex_name);
 android::base::Result<void> restoreCeData(const int user_id,
                                           const int rollback_id,
                                           const std::string& apex_name);
