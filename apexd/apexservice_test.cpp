@@ -527,7 +527,8 @@ Result<void> ReadDevice(const std::string& block_device) {
   static constexpr size_t kBufSize = 1024 * kBlockSize;
   std::vector<uint8_t> buffer(kBufSize);
 
-  unique_fd fd(TEMP_FAILURE_RETRY(open(block_device.c_str(), O_RDONLY)));
+  unique_fd fd(
+      TEMP_FAILURE_RETRY(open(block_device.c_str(), O_RDONLY | O_CLOEXEC)));
   if (fd.get() == -1) {
     return ErrnoError() << "Can't open " << block_device;
   }
@@ -719,7 +720,7 @@ TEST_F(ApexServiceTest, SubmitStagedSessionFailDoesNotLeakTempVerityDevices) {
   }
 }
 
-TEST_F(ApexServiceTest, StageSuccess_ClearsPreviouslyActivePackage) {
+TEST_F(ApexServiceTest, StageSuccessClearsPreviouslyActivePackage) {
   PrepareTestApexForInstall installer1(GetTestFile("apex.apexd_test_v2.apex"));
   PrepareTestApexForInstall installer2(
       GetTestFile("apex.apexd_test_different_app.apex"));
@@ -871,7 +872,7 @@ TEST_F(ApexServiceTest, RestoreCeData) {
       DirExists("/data/misc_ce/0/apexrollback/123456/apex.apexd_test"));
 }
 
-TEST_F(ApexServiceTest, DestroyDeSnapshots_DeSys) {
+TEST_F(ApexServiceTest, DestroyDeSnapshotsDeSys) {
   CreateDir("/data/misc/apexrollback/123456");
   CreateDir("/data/misc/apexrollback/123456/my.apex");
   CreateFile("/data/misc/apexrollback/123456/my.apex/hello.txt");
@@ -889,7 +890,7 @@ TEST_F(ApexServiceTest, DestroyDeSnapshots_DeSys) {
   ASSERT_FALSE(DirExists("/data/misc/apexrollback/123456"));
 }
 
-TEST_F(ApexServiceTest, DestroyDeSnapshots_DeUser) {
+TEST_F(ApexServiceTest, DestroyDeSnapshotsDeUser) {
   CreateDir("/data/misc_de/0/apexrollback/123456");
   CreateDir("/data/misc_de/0/apexrollback/123456/my.apex");
   CreateFile("/data/misc_de/0/apexrollback/123456/my.apex/hello.txt");
@@ -1320,7 +1321,7 @@ TEST_F(ApexServiceTest, NoHashtreeApexStagePackagesMovesHashtree) {
   auto read_fn = [](const std::string& path) -> std::vector<uint8_t> {
     static constexpr size_t kBufSize = 4096;
     std::vector<uint8_t> buffer(kBufSize);
-    unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), O_RDONLY)));
+    unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), O_RDONLY | O_CLOEXEC)));
     if (fd.get() == -1) {
       PLOG(ERROR) << "Failed to open " << path;
       ADD_FAILURE();
@@ -2689,7 +2690,7 @@ TEST_F(ApexServiceTest, SubmitStagedSessionCorruptApexFails) {
   ASSERT_FALSE(IsOk(service_->submitStagedSession(params, &list)));
 }
 
-TEST_F(ApexServiceTest, SubmitStagedSessionCorruptApexFails_b146895998) {
+TEST_F(ApexServiceTest, SubmitStagedSessionCorruptApexFailsB146895998) {
   PrepareTestApexForInstall installer(GetTestFile("corrupted_b146895998.apex"),
                                       "/data/app-staging/session_71",
                                       "staging_data_file");
@@ -2704,7 +2705,7 @@ TEST_F(ApexServiceTest, SubmitStagedSessionCorruptApexFails_b146895998) {
   ASSERT_FALSE(IsOk(service_->submitStagedSession(params, &list)));
 }
 
-TEST_F(ApexServiceTest, StageCorruptApexFails_b146895998) {
+TEST_F(ApexServiceTest, StageCorruptApexFailsB146895998) {
   PrepareTestApexForInstall installer(GetTestFile("corrupted_b146895998.apex"));
 
   if (!installer.Prepare()) {
@@ -2788,6 +2789,25 @@ TEST_F(ApexServiceActivationSuccessTest, RemountPackagesPackageOnDataChanged) {
   ASSERT_EQ(installer_->test_installed_file, active_apex->modulePath);
 }
 
+TEST_F(ApexServiceTest,
+       SubmitStagedSessionFailsManifestMismatchCleansUpHashtree) {
+  PrepareTestApexForInstall installer(
+      GetTestFile("apex.apexd_test_no_hashtree_manifest_mismatch.apex"),
+      "/data/app-staging/session_83", "staging_data_file");
+  if (!installer.Prepare()) {
+    return;
+  }
+
+  ApexInfoList list;
+  ApexSessionParams params;
+  params.sessionId = 83;
+  ASSERT_FALSE(IsOk(service_->submitStagedSession(params, &list)));
+  std::string hashtree_file = std::string(kApexHashTreeDir) + "/" +
+                              installer.package + "@" +
+                              std::to_string(installer.version) + ".new";
+  ASSERT_FALSE(RegularFileExists(hashtree_file));
+}
+
 class LogTestToLogcat : public ::testing::EmptyTestEventListener {
   void OnTestStart(const ::testing::TestInfo& test_info) override {
 #ifdef __ANDROID__
@@ -2796,7 +2816,7 @@ class LogTestToLogcat : public ::testing::EmptyTestEventListener {
     using base::StringPrintf;
     base::LogdLogger l;
     std::string msg =
-        StringPrintf("=== %s::%s (%s:%d)", test_info.test_case_name(),
+        StringPrintf("=== %s::%s (%s:%d)", test_info.test_suite_name(),
                      test_info.name(), test_info.file(), test_info.line());
     l(LogId::MAIN, LogSeverity::INFO, "ApexTestCases", __FILE__, __LINE__,
       msg.c_str());
