@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-package com.android.tests.apex;
+package com.android.tests.apex.sdkextensions;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.android.tests.apex.ApexE2EBaseHostTest;
 import com.android.tradefed.device.DeviceNotAvailableException;
 import com.android.tradefed.device.IManagedTestDevice;
 import com.android.tradefed.log.LogUtil.CLog;
@@ -34,7 +35,7 @@ import java.io.IOException;
  * Test to check if Apex can be staged, activated and uninstalled successfully.
  */
 @RunWith(DeviceJUnit4ClassRunner.class)
-public class ApiExtensionsHostTest extends ApexE2EBaseHostTest {
+public class SdkExtensionsHostTest extends ApexE2EBaseHostTest {
 
     @Test
     public void testDefault() throws Exception {
