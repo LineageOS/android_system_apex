@@ -138,9 +138,7 @@ Result<void> StageFnInstall(const std::vector<ApexFile>& apexes, Fn fn,
     }
   }
 
-  std::string error_msg;
-  int res = ForkAndRun(args, &error_msg);
-  return res == 0 ? Result<void>{} : Error() << error_msg;
+  return ForkAndRun(args);
 }
 
 template <typename Fn>

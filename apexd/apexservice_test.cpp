@@ -297,9 +297,8 @@ class ApexServiceTest : public ::testing::Test {
         "-f",
         file,
     };
-    std::string error_msg;
-    int res = ForkAndRun(args, &error_msg);
-    CHECK_EQ(0, res) << error_msg;
+    auto res = ForkAndRun(args);
+    CHECK(res.ok()) << res.error();
 
     std::string data;
     CHECK(android::base::ReadFileToString(file, &data));
