@@ -267,13 +267,12 @@ Result<DmVerityDevice> createVerityDevice(const std::string& name,
   DeviceMapper& dm = DeviceMapper::Instance();
 
   if (dm.GetState(name) != DmDeviceState::INVALID) {
-    // TODO: since apexd tears down devices during unmount, can this happen?
+    // Delete dangling dm-device. This can happen if apexd fails to delete it
+    // while unmounting an apex.
     LOG(WARNING) << "Deleting existing dm device " << name;
-    const Result<void>& result = DeleteVerityDevice(name);
+    auto result = DeleteVerityDevice(name);
     if (!result.ok()) {
-      // TODO: should we fail instead?
-      LOG(ERROR) << "Failed to delete device " << name << " : "
-                 << result.error();
+      return result.error();
     }
   }
 
