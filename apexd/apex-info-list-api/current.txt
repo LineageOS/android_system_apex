@@ -32,5 +32,12 @@ package com.android.apex {
     method public static void skip(org.xmlpull.v1.XmlPullParser) throws java.io.IOException, org.xmlpull.v1.XmlPullParserException;
   }
 
+  public class XmlWriter implements java.io.Closeable {
+    ctor public XmlWriter(java.io.PrintWriter);
+    method public void close();
+    method public static void write(com.android.apex.XmlWriter, com.android.apex.ApexInfoList) throws java.io.IOException;
+    method public static void write(com.android.apex.XmlWriter, com.android.apex.ApexInfo) throws java.io.IOException;
+  }
+
 }
 
