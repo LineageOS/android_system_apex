@@ -239,4 +239,36 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
             }
         }
     }
+
+    /**
+     * Test to verify that the state of a staged session does not change if apexd is stopped and
+     * restarted while a session is staged.
+     */
+    @Test
+    public void testApexSessionStateUnchangedBeforeReboot() throws Exception {
+        assumeTrue("Device does not support updating APEX", mTestUtils.isApexUpdateSupported());
+        assumeTrue("Device requires root", getDevice().isAdbRoot());
+
+        try {
+            File apexFile = mTestUtils.getTestFile("com.android.apex.cts.shim.v2.apex");
+            String error = getDevice().installPackage(apexFile, false, "--wait");
+            assertThat(error).isNull();
+            String sessionId = getDevice().executeShellCommand(
+                    "pm get-stagedsessions --only-ready --only-parent --only-sessionid").trim();
+            assertThat(sessionId).isNotEmpty();
+            String sessionStateCmd = "cmd -w apexservice getStagedSessionInfo " + sessionId;
+            String initialState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
+            assertThat(initialState).isNotEmpty();
+
+            // Kill apexd. This means apexd will perform its start logic when the second install
+            // is staged.
+            getDevice().executeShellV2Command("kill `pidof apexd`");
+
+            // Verify that the session state remains consistent after apexd has restarted.
+            String updatedState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
+            assertThat(updatedState).isEqualTo(initialState);
+        } finally {
+            mTestUtils.abandonActiveStagedSession();
+        }
+    }
 }
