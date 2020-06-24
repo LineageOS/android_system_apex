@@ -99,16 +99,6 @@ TEST(ApexFileTest, VerifyApexVerity) {
       data.root_digest);
 }
 
-// TODO: May consider packaging a debug key in debug builds (again).
-TEST(ApexFileTest, DISABLED_VerifyApexVerityNoKeyDir) {
-  const std::string filePath = testDataDir + "apex.apexd_test.apex";
-  Result<ApexFile> apexFile = ApexFile::Open(filePath);
-  ASSERT_RESULT_OK(apexFile);
-
-  auto verity_or = apexFile->VerifyApexVerity();
-  ASSERT_FALSE(verity_or.ok());
-}
-
 TEST(ApexFileTest, VerifyApexVerityNoKeyInst) {
   const std::string filePath = testDataDir + "apex.apexd_test_no_inst_key.apex";
   Result<ApexFile> apexFile = ApexFile::Open(filePath);

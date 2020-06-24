@@ -60,8 +60,8 @@ void waitForBootStatus(Result<void> (&revert_fn)(const std::string&),
     }
   }
   // Wait for boot to complete, and then run complete_fn.
-  // TODO(ioffe): this is a hack, instead we should have a binder call from
-  //  system_server into apexd when boot completes.
+  // TODO(b/158467962): this is a hack, instead we should have a binder call
+  //  from system_server into apexd when boot completes.
   if (WaitForProperty("sys.boot_completed", "1", std::chrono::minutes(5))) {
     complete_fn();
     return;

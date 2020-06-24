@@ -98,7 +98,7 @@ void InstallSigtermSignalHandler() {
 
 int main(int /*argc*/, char** argv) {
   android::base::InitLogging(argv, &android::base::KernelLogger);
-  // TODO: add a -v flag or an external setting to change LogSeverity.
+  // TODO(b/158468454): add a -v flag or an external setting to change severity.
   android::base::SetMinimumLogSeverity(android::base::VERBOSE);
 
   InstallSigtermSignalHandler();

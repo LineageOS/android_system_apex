@@ -783,7 +783,6 @@ TEST_F(ApexServiceTest, MultiStageSuccess) {
   }
   ASSERT_EQ(std::string("com.android.apex.test_package"), installer.package);
 
-  // TODO: Add second test. Right now, just use a separate version.
   PrepareTestApexForInstall installer2(GetTestFile("apex.apexd_test_v2.apex"));
   if (!installer2.Prepare()) {
     return;

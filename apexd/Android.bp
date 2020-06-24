@@ -17,6 +17,7 @@ tidy_errors = [
   "google-default-arguments",
   "google-explicit-constructor",
   "google-readability-avoid-underscore-in-googletest-name",
+  "google-readability-todo",
   "google-runtime-int",
   "google-runtime-member-string-references",
   "misc-move-const-arg",

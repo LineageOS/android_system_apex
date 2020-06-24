@@ -456,7 +456,7 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
       return readAheadStatus.error();
     }
   }
-  // TODO: consider moving this inside RunVerifyFnInsideTempMount.
+  // TODO(b/158467418): consider moving this inside RunVerifyFnInsideTempMount.
   if (mountOnVerity && verifyImage) {
     Result<void> verityStatus =
         readVerityDevice(blockDevice, (*verityData).desc->image_size);
@@ -839,7 +839,6 @@ Result<void> RestoreActivePackages() {
   LOG(DEBUG) << "Restoring original permissions for "
              << kActiveApexPackagesDataDir;
   if (chmod(kActiveApexPackagesDataDir, stat_data.st_mode & ALLPERMS) != 0) {
-    // TODO: should we wipe out /data/apex/active if chmod fails?
     return ErrnoError() << "Failed to restore original permissions for "
                         << kActiveApexPackagesDataDir;
   }
@@ -906,12 +905,12 @@ namespace apexd_private {
 
 Result<MountedApexData> TempMountPackage(const ApexFile& apex,
                                          const std::string& mount_point) {
-  // TODO(ioffe): consolidate these two methods.
+  // TODO(b/139041058): consolidate these two methods.
   return android::apex::VerifyAndTempMountPackage(apex, mount_point);
 }
 
 Result<void> Unmount(const MountedApexData& data) {
-  // TODO(ioffe): consolidate these two methods.
+  // TODO(b/139041058): consolidate these two methods.
   return android::apex::Unmount(data);
 }
 
@@ -1051,7 +1050,6 @@ std::vector<ApexFile> getActivePackages() {
 
         Result<ApexFile> apexFile = ApexFile::Open(data.full_path);
         if (!apexFile.ok()) {
-          // TODO: Fail?
           return;
         }
         ret.emplace_back(std::move(*apexFile));
@@ -1173,7 +1171,7 @@ Result<void> abortStagedSession(int session_id) {
   }
 }
 
-// TODO(ioffe): cleanup activation logic to avoid unnecessary scanning.
+// TODO(b/139041058): cleanup activation logic to avoid unnecessary scanning.
 namespace {
 
 Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir) {
@@ -1591,7 +1589,7 @@ void scanStagedSessionsDirAndStage() {
     }
 
     for (const auto& apex : apexes) {
-      // TODO: Avoid opening ApexFile repeatedly.
+      // TODO(b/158470836): Avoid opening ApexFile repeatedly.
       Result<ApexFile> apex_file = ApexFile::Open(apex);
       if (!apex_file.ok()) {
         LOG(ERROR) << "Cannot open apex file during staging: " << apex;
@@ -1714,7 +1712,6 @@ Result<void> stagePackages(const std::vector<std::string>& tmpPaths) {
     }
 
     if (link(apex_file->GetPath().c_str(), dest_path.c_str()) != 0) {
-      // TODO: Get correct binder error status.
       return ErrnoError() << "Unable to link " << apex_file->GetPath() << " to "
                           << dest_path;
     }
@@ -1735,9 +1732,6 @@ Result<void> unstagePackages(const std::vector<std::string>& paths) {
     return Errorf("Empty set of inputs");
   }
   LOG(DEBUG) << "unstagePackages() for " << Join(paths, ',');
-
-  // TODO: to make unstage safer, we can copy to be unstaged packages to a
-  // temporary folder and restore state from it in case unstagePackages fails.
 
   for (const std::string& path : paths) {
     if (isPathForBuiltinApexes(path)) {
@@ -1782,7 +1776,6 @@ Result<void> revertActiveSessions(const std::string& crashing_native_process) {
     auto status =
         session.UpdateStateAndCommit(SessionState::REVERT_IN_PROGRESS);
     if (!status.ok()) {
-      // TODO: should we continue with a revert?
       return Error() << "Revert of session " << session
                      << " failed : " << status.error();
     }
@@ -1972,7 +1965,6 @@ void onStart() {
                << kActiveApexPackagesDataDir << " : " << status.error();
     Result<void> revert_status = revertActiveSessionsAndReboot("");
     if (!revert_status.ok()) {
-      // TODO: should we kill apexd in this case?
       LOG(ERROR) << "Failed to revert : " << revert_status.error()
                  << kActiveApexPackagesDataDir << " : " << ret.error();
     }
@@ -1990,7 +1982,6 @@ void onStart() {
     }
     if (auto activate = ActivateApexPackages(*scan_status); !activate.ok()) {
       // This should never happen. Like **really** never.
-      // TODO: should we kill apexd in this case?
       LOG(ERROR) << "Failed to activate packages from " << dir << " : "
                  << activate.error();
     }
