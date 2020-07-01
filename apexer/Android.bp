@@ -55,6 +55,10 @@ python_binary_host {
     srcs: [
         "apexer.py",
     ],
+    // TODO(b/157625953) mke2fs.conf can't embedded directly.
+    data: [
+        ":mke2fs_conf",
+    ],
     version: {
         py2: {
             enabled: true,
@@ -122,6 +126,7 @@ python_test_host {
         ":com.android.example-legacy.apex",
         ":com.android.example-logging_parent.apex",
         ":com.android.example-overridden_package_name.apex",
+        ":apexer_test_host_tools",
         "testdata/com.android.example.apex.avbpubkey",
         "testdata/com.android.example.apex.pem",
         "testdata/com.android.example.apex.pk8",
@@ -140,7 +145,54 @@ python_test_host {
         "apex_manifest",
     ],
     required: [
-        "apexer",
-        "deapexer"
+        "apexer_test_host_tools",
     ],
 }
+
+apexer_deps_tools = apexer_tools + apexer_go_tools + [
+    "deapexer",
+    "debugfs_static",
+]
+
+genrule {
+    name: "apexer_test_host_tools",
+    srcs: [
+        ":current_android_jar",
+    ],
+    out: ["apexer_test_host_tools.zip"],
+    tools: apexer_deps_tools,
+    cmd: "HOST_OUT_BIN=$$(dirname $(location apexer)) && " +
+        "HOST_SOONG_OUT=$$(dirname $$(dirname $$HOST_OUT_BIN)) && " +
+        "SIGNAPK_JAR=$$(find $$HOST_SOONG_OUT -name \"signapk*\") && " +
+        "LIBCPLUSPLUS=$$(find $$HOST_SOONG_OUT -name \"libc++.*\") && " +
+        "LIBCONSCRYPT_OPENJDK_JNI=$$(find $$HOST_SOONG_OUT -name \"libconscrypt_openjdk_jni.*\") && " +
+        "BASE=$(genDir)/binary_files && " +
+        "BIN=$$BASE/bin && " +
+        "LIB=$$BASE/lib64 && " +
+        "mkdir -p $$BIN && " +
+        "mkdir -p $$LIB && " +
+        "cp $$(echo $(in) | tr \" \" \"\\n\" | grep -v apex) $$BIN && " +
+        "cp $(location apexer) $$BIN && " +
+        "cp $(location deapexer) $$BIN && " +
+        "cp $(location avbtool) $$BIN && " +
+        "cp $(location aapt2) $$BIN && " +
+        "cp $(location e2fsdroid) $$BIN && " +
+        "cp $(location merge_zips) $$BIN && " +
+        "cp $(location mke2fs) $$BIN && " +
+        "cp $(location resize2fs) $$BIN && " +
+        "cp $(location sefcontext_compile) $$BIN && " +
+        "cp $(location soong_zip) $$BIN && " +
+        "cp $(location fec) $$BIN && " +
+        "cp $(location zipalign) $$BIN && " +
+        "cp $(location debugfs_static) $$BIN && " +
+        "cp $$SIGNAPK_JAR $$BIN && " +
+        "cp $$LIBCPLUSPLUS $$LIB && " +
+        "cp $$LIBCONSCRYPT_OPENJDK_JNI $$LIB && " +
+        "$(location soong_zip) -C $$BASE -D $$BASE -o $(out) && " +
+        "rm -rf $$BASE",
+    required: apexer_deps_tools + [
+        "libconscrypt_openjdk_jni",
+        "signapk",
+    ],
+}
+
