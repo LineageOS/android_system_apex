@@ -111,6 +111,7 @@ void onAllPackagesActivated();
 // Must only be called during boot (i.e. apexd.status is not "ready" or
 // "activated").
 void onAllPackagesReady();
+void onBootCompleted();
 void bootCompletedCleanup();
 int snapshotOrRestoreDeUserData();
 

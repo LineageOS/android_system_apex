@@ -122,4 +122,9 @@ interface IApexService {
     * on user builds. Only root is allowed to call this method.
     */
    void recollectPreinstalledData(in @utf8InCpp List<String> paths);
+
+   /**
+    * Informs apexd that the boot has completed.
+    */
+   oneway void markBootCompleted();
 }

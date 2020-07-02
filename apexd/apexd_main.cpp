@@ -148,8 +148,7 @@ int main(int /*argc*/, char** argv) {
     // complete.
     android::apex::onAllPackagesActivated();
     android::apex::waitForBootStatus(
-        android::apex::revertActiveSessionsAndReboot,
-        android::apex::bootCompletedCleanup);
+        android::apex::revertActiveSessionsAndReboot);
   }
 
   android::apex::binder::AllowServiceShutdown();

@@ -1501,6 +1501,11 @@ void deleteDePreRestoreSnapshots(const ApexSession& session) {
   }
 }
 
+void onBootCompleted() {
+  markBootCompleted();
+  bootCompletedCleanup();
+}
+
 void scanStagedSessionsDirAndStage() {
   LOG(INFO) << "Scanning " << kApexSessionsDir
             << " looking for sessions to be activated.";
