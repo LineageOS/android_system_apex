@@ -1059,21 +1059,19 @@ std::vector<ApexFile> getActivePackages() {
 }
 
 Result<void> emitApexInfoList() {
-  com::android::apex::ApexInfoList apexInfoList;
+  std::vector<com::android::apex::ApexInfo> apexInfos;
 
-  auto convertToAutogen = [&apexInfoList](const ApexFile& apex, bool isActive) {
-    com::android::apex::ApexInfo apexInfo;
-    apexInfo.setModuleName(apex.GetManifest().name());
-    apexInfo.setModulePath(apex.GetPath());
+  auto convertToAutogen = [&apexInfos](const ApexFile& apex, bool isActive) {
     auto preinstalledPath = getApexPreinstalledPath(apex.GetManifest().name());
+    std::optional<std::string> preinstalledModulePath;
     if (preinstalledPath.ok()) {
-      apexInfo.setPreinstalledModulePath(*preinstalledPath);
+      preinstalledModulePath = *preinstalledPath;
     }
-    apexInfo.setVersionCode(apex.GetManifest().version());
-    apexInfo.setVersionName(apex.GetManifest().versionname());
-    apexInfo.setIsFactory(apex.IsBuiltin());
-    apexInfo.setIsActive(isActive);
-    apexInfoList.getApexInfo().push_back(apexInfo);
+    com::android::apex::ApexInfo apexInfo(
+        apex.GetManifest().name(), apex.GetPath(), preinstalledModulePath,
+        apex.GetManifest().version(), apex.GetManifest().versionname(),
+        apex.IsBuiltin(), isActive);
+    apexInfos.emplace_back(apexInfo);
   };
 
   const std::string fileName = fmt::format("{}/{}", kApexRoot, kApexInfoList);
@@ -1098,6 +1096,7 @@ Result<void> emitApexInfoList() {
   }
 
   std::stringstream xml;
+  com::android::apex::ApexInfoList apexInfoList(apexInfos);
   com::android::apex::write(xml, apexInfoList);
 
   if (!android::base::WriteStringToFd(xml.str(), fd)) {
