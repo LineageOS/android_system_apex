@@ -1059,6 +1059,11 @@ std::vector<ApexFile> getActivePackages() {
 }
 
 Result<void> emitApexInfoList() {
+  // on a non-updatable device, we don't have APEX database to emit
+  if (!android::sysprop::ApexProperties::updatable().value_or(false)) {
+    return {};
+  }
+
   std::vector<com::android::apex::ApexInfo> apexInfos;
 
   auto convertToAutogen = [&apexInfos](const ApexFile& apex, bool isActive) {
@@ -1074,7 +1079,13 @@ Result<void> emitApexInfoList() {
     apexInfos.emplace_back(apexInfo);
   };
 
-  const std::string fileName = fmt::format("{}/{}", kApexRoot, kApexInfoList);
+  // Apexd runs both in "bootstrap" and "default" mount namespace.
+  // To expose /apex/apex-info-list.xml separately in each mount namespaces,
+  // we write /apex/.<namespace>-apex-info-list .xml file first and then
+  // bind mount it to the canonical file (/apex/apex-info-list.xml).
+  const std::string fileName =
+      fmt::format("{}/.{}-{}", kApexRoot, gBootstrap ? "bootstrap" : "default",
+                  kApexInfoList);
 
   unique_fd fd(TEMP_FAILURE_RETRY(
       open(fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644)));
@@ -1086,12 +1097,17 @@ Result<void> emitApexInfoList() {
   for (const auto& apex : active) {
     convertToAutogen(apex, true /* isActive */);
   }
-  for (const auto& apex : getFactoryPackages()) {
-    const auto& same_path = [&apex](const auto& o) {
-      return o.GetPath() == apex.GetPath();
-    };
-    if (std::find_if(active.begin(), active.end(), same_path) == active.end()) {
-      convertToAutogen(apex, false /* isActive */);
+  // we skip for non-activated built-in apexes in bootstrap mode
+  // in order to avoid boottime increase
+  if (!gBootstrap) {
+    for (const auto& apex : getFactoryPackages()) {
+      const auto& same_path = [&apex](const auto& o) {
+        return o.GetPath() == apex.GetPath();
+      };
+      if (std::find_if(active.begin(), active.end(), same_path) ==
+          active.end()) {
+        convertToAutogen(apex, false /* isActive */);
+      }
     }
   }
 
@@ -1103,6 +1119,17 @@ Result<void> emitApexInfoList() {
     return ErrnoErrorf("Can't write to {}", fileName);
   }
 
+  fd.reset();
+
+  const std::string mountPoint = fmt::format("{}/{}", kApexRoot, kApexInfoList);
+  if (access(mountPoint.c_str(), F_OK) != 0) {
+    close(open(mountPoint.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+               0644));
+  }
+  if (mount(fileName.c_str(), mountPoint.c_str(), nullptr, MS_BIND, nullptr) ==
+      -1) {
+    return ErrnoErrorf("Can't bind mount {} to {}", fileName, mountPoint);
+  }
   return RestoreconPath(fileName);
 }
 
@@ -1868,6 +1895,8 @@ int onBootstrap() {
       return 1;
     }
   }
+
+  onAllPackagesActivated();
   LOG(INFO) << "Bootstrapping done";
   return 0;
 }
@@ -1999,6 +2028,12 @@ void onAllPackagesActivated() {
   auto result = emitApexInfoList();
   if (!result.ok()) {
     LOG(ERROR) << "cannot emit apex info list: " << result.error();
+  }
+
+  // Because apexd in bootstrap mode runs in blocking mode
+  // we don't have to set as activated.
+  if (gBootstrap) {
+    return;
   }
 
   // Set a system property to let other components know that APEXs are

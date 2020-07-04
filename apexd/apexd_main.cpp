@@ -17,6 +17,7 @@
 #define LOG_TAG "apexd"
 
 #include <strings.h>
+#include <sys/stat.h>
 
 #include <ApexProperties.sysprop.h>
 #include <android-base/logging.h>
@@ -100,6 +101,11 @@ int main(int /*argc*/, char** argv) {
   android::base::InitLogging(argv, &android::base::KernelLogger);
   // TODO(b/158468454): add a -v flag or an external setting to change severity.
   android::base::SetMinimumLogSeverity(android::base::VERBOSE);
+
+  // set umask to 022 so that files/dirs created are accessible to other
+  // processes e.g.) apex-info-file.xml is supposed to be read by other
+  // processes
+  umask(022);
 
   InstallSigtermSignalHandler();
 
