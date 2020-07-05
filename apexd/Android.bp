@@ -153,7 +153,6 @@ cc_library_static {
   ],
   export_include_dirs: ["."],
   generated_sources: ["apex-info-list"],
-  generated_headers: ["apex-info-list"],
   // Don't add shared/static libs here; add to libapexd_defaults instead.
 }
 
