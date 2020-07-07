@@ -144,15 +144,17 @@ python_test_host {
     libs: [
         "apex_manifest",
     ],
-    required: [
+    target_required: [
         "apexer_test_host_tools",
     ],
 }
 
-apexer_deps_tools = apexer_tools + apexer_go_tools + [
+apexer_deps_minus_go_tools = apexer_tools + [
     "deapexer",
     "debugfs_static",
 ]
+
+apexer_deps_tools = apexer_deps_minus_go_tools + apexer_go_tools
 
 genrule {
     name: "apexer_test_host_tools",
@@ -162,10 +164,10 @@ genrule {
     out: ["apexer_test_host_tools.zip"],
     tools: apexer_deps_tools,
     cmd: "HOST_OUT_BIN=$$(dirname $(location apexer)) && " +
-        "HOST_SOONG_OUT=$$(dirname $$(dirname $$HOST_OUT_BIN)) && " +
-        "SIGNAPK_JAR=$$(find $$HOST_SOONG_OUT -name \"signapk*\") && " +
-        "LIBCPLUSPLUS=$$(find $$HOST_SOONG_OUT -name \"libc++.*\") && " +
-        "LIBCONSCRYPT_OPENJDK_JNI=$$(find $$HOST_SOONG_OUT -name \"libconscrypt_openjdk_jni.*\") && " +
+        "HOST_SOONG_OUT=$$(dirname $$HOST_OUT_BIN) && " +
+        "SIGNAPK_JAR=$$(find $${HOST_SOONG_OUT}/framework -name \"signapk*\") && " +
+        "LIBCPLUSPLUS=$$(find $${HOST_SOONG_OUT}/lib64 -name \"libc++.*\") && " +
+        "LIBCONSCRYPT_OPENJDK_JNI=$$(find $${HOST_SOONG_OUT}/lib64 -name \"libconscrypt_openjdk_jni.*\") && " +
         "BASE=$(genDir)/binary_files && " +
         "BIN=$$BASE/bin && " +
         "LIB=$$BASE/lib64 && " +
@@ -190,9 +192,9 @@ genrule {
         "cp $$LIBCONSCRYPT_OPENJDK_JNI $$LIB && " +
         "$(location soong_zip) -C $$BASE -D $$BASE -o $(out) && " +
         "rm -rf $$BASE",
-    required: apexer_deps_tools + [
+    // TODO(b/157110982): cannot specify "required" dependency on go binary
+    host_required: apexer_deps_minus_go_tools + [
         "libconscrypt_openjdk_jni",
         "signapk",
     ],
 }
-
