@@ -112,6 +112,9 @@
   "imports": [
     {
       "path": "cts/hostsidetests/stagedinstall"
+    },
+    {
+      "path": "frameworks/base/tests/StagedInstallTest"
     }
   ]
 }

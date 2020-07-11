@@ -1441,6 +1441,12 @@ Result<void> destroyDeSnapshots(const int rollback_id) {
   return {};
 }
 
+Result<void> destroyCeSnapshots(const int user_id, const int rollback_id) {
+  auto path = StringPrintf("%s/%d/%s/%d", kCeDataDir, user_id,
+                           kApexSnapshotSubDir, rollback_id);
+  return DeleteDir(path);
+}
+
 /**
  * Deletes all credential-encrypted snapshots for the given user, except for
  * those listed in retain_rollback_ids.

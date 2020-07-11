@@ -23,6 +23,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.android.apex.ApexInfo;
 import com.android.apex.XmlParser;
+import com.android.tests.rollback.host.AbandonSessionsRule;
 import com.android.tests.util.ModuleTestUtils;
 import com.android.tradefed.device.ITestDevice;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
@@ -30,6 +31,7 @@ import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -49,6 +51,9 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
     private static final String SHIM_APEX_PATH = "/system/apex/com.android.apex.cts.shim.apex";
 
     private final ModuleTestUtils mTestUtils = new ModuleTestUtils(this);
+
+    @Rule
+    public AbandonSessionsRule mHostTestRule = new AbandonSessionsRule(this);
 
     @Before
     public void setUp() throws Exception {
@@ -249,26 +254,22 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
         assumeTrue("Device does not support updating APEX", mTestUtils.isApexUpdateSupported());
         assumeTrue("Device requires root", getDevice().isAdbRoot());
 
-        try {
-            File apexFile = mTestUtils.getTestFile("com.android.apex.cts.shim.v2.apex");
-            String error = getDevice().installPackage(apexFile, false, "--wait");
-            assertThat(error).isNull();
-            String sessionId = getDevice().executeShellCommand(
-                    "pm get-stagedsessions --only-ready --only-parent --only-sessionid").trim();
-            assertThat(sessionId).isNotEmpty();
-            String sessionStateCmd = "cmd -w apexservice getStagedSessionInfo " + sessionId;
-            String initialState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
-            assertThat(initialState).isNotEmpty();
+        File apexFile = mTestUtils.getTestFile("com.android.apex.cts.shim.v2.apex");
+        String error = mTestUtils.installStagedPackage(apexFile);
+        assertThat(error).isNull();
+        String sessionId = getDevice().executeShellCommand(
+                "pm get-stagedsessions --only-ready --only-parent --only-sessionid").trim();
+        assertThat(sessionId).isNotEmpty();
+        String sessionStateCmd = "cmd -w apexservice getStagedSessionInfo " + sessionId;
+        String initialState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
+        assertThat(initialState).isNotEmpty();
 
-            // Kill apexd. This means apexd will perform its start logic when the second install
-            // is staged.
-            getDevice().executeShellV2Command("kill `pidof apexd`");
+        // Kill apexd. This means apexd will perform its start logic when the second install
+        // is staged.
+        getDevice().executeShellV2Command("kill `pidof apexd`");
 
-            // Verify that the session state remains consistent after apexd has restarted.
-            String updatedState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
-            assertThat(updatedState).isEqualTo(initialState);
-        } finally {
-            mTestUtils.abandonActiveStagedSession();
-        }
+        // Verify that the session state remains consistent after apexd has restarted.
+        String updatedState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
+        assertThat(updatedState).isEqualTo(initialState);
     }
 }

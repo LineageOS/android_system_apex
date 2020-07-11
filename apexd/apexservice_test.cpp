@@ -906,6 +906,31 @@ TEST_F(ApexServiceTest, DestroyDeSnapshotsDeUser) {
   ASSERT_FALSE(DirExists("/data/misc_de/0/apexrollback/123456"));
 }
 
+TEST_F(ApexServiceTest, DestroyCeSnapshots) {
+  CreateDir("/data/misc_ce/0/apexrollback/123456");
+  CreateDir("/data/misc_ce/0/apexrollback/123456/apex.apexd_test");
+  CreateFile("/data/misc_ce/0/apexrollback/123456/apex.apexd_test/file.txt");
+
+  CreateDir("/data/misc_ce/0/apexrollback/77777");
+  CreateDir("/data/misc_ce/0/apexrollback/77777/apex.apexd_test");
+  CreateFile("/data/misc_ce/0/apexrollback/77777/apex.apexd_test/thing.txt");
+
+  ASSERT_TRUE(RegularFileExists(
+      "/data/misc_ce/0/apexrollback/123456/apex.apexd_test/file.txt"));
+  ASSERT_TRUE(RegularFileExists(
+      "/data/misc_ce/0/apexrollback/77777/apex.apexd_test/thing.txt"));
+
+  android::binder::Status st = service_->destroyCeSnapshots(0, 123456);
+  ASSERT_TRUE(IsOk(st));
+  // Should be OK if the directory doesn't exist.
+  st = service_->destroyCeSnapshots(1, 123456);
+  ASSERT_TRUE(IsOk(st));
+
+  ASSERT_TRUE(RegularFileExists(
+      "/data/misc_ce/0/apexrollback/77777/apex.apexd_test/thing.txt"));
+  ASSERT_FALSE(DirExists("/data/misc_ce/0/apexrollback/123456"));
+}
+
 TEST_F(ApexServiceTest, DestroyCeSnapshotsNotSpecified) {
   CreateDir("/data/misc_ce/0/apexrollback/123456");
   CreateDir("/data/misc_ce/0/apexrollback/123456/apex.apexd_test");

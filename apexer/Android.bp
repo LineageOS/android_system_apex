@@ -144,6 +144,7 @@ python_test_host {
     libs: [
         "apex_manifest",
     ],
+    // TODO(b/160848329): To remove the unnecessary dependence
     target_required: [
         "apexer_test_host_tools",
     ],
@@ -162,7 +163,10 @@ genrule {
         ":current_android_jar",
     ],
     out: ["apexer_test_host_tools.zip"],
-    tools: apexer_deps_tools,
+    tools: apexer_deps_tools + [
+        // To force signapk.jar generated in out/soong/host
+        "signapk",
+    ],
     cmd: "HOST_OUT_BIN=$$(dirname $(location apexer)) && " +
         "HOST_SOONG_OUT=$$(dirname $$HOST_OUT_BIN) && " +
         "SIGNAPK_JAR=$$(find $${HOST_SOONG_OUT}/framework -name \"signapk*\") && " +
@@ -173,7 +177,7 @@ genrule {
         "LIB=$$BASE/lib64 && " +
         "mkdir -p $$BIN && " +
         "mkdir -p $$LIB && " +
-        "cp $$(echo $(in) | tr \" \" \"\\n\" | grep -v apex) $$BIN && " +
+        "cp $(in) $$BIN && " +
         "cp $(location apexer) $$BIN && " +
         "cp $(location deapexer) $$BIN && " +
         "cp $(location avbtool) $$BIN && " +
@@ -194,6 +198,7 @@ genrule {
         "rm -rf $$BASE",
     // TODO(b/157110982): cannot specify "required" dependency on go binary
     host_required: apexer_deps_minus_go_tools + [
+        // TODO(b/160848329): To remove the unnecessary dependence
         "libconscrypt_openjdk_jni",
         "signapk",
     ],

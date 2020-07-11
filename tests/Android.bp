@@ -195,6 +195,7 @@ java_library_host {
     srcs: ["src/**/ApexE2EBaseHostTest.java"],
     static_libs: [
         "module_test_util",
+        "frameworks-base-hostutils",
     ],
     libs: [
         "tradefed",
@@ -262,7 +263,7 @@ java_test_host {
     name: "apex_rollback_tests",
     srcs:  ["src/**/ApexRollbackTests.java", "src/**/ApexTestUtils.java"],
     libs: ["tradefed", "truth-prebuilt"],
-    static_libs: ["module_test_util"],
+    static_libs: ["module_test_util", "frameworks-base-hostutils"],
     test_config: "apex-rollback-tests.xml",
     test_suites: ["general-tests"],
 
@@ -276,16 +277,6 @@ java_test_host {
 }
 
 java_test_host {
-    name: "module_test_utils_tests",
-    srcs:  ["src/**/ModuleTestUtilsTest.java"],
-    libs: ["tradefed", "truth-prebuilt"],
-    static_libs: ["module_test_util"],
-    test_config: "module-test-utils-tests.xml",
-    test_suites: ["general-tests"],
-    data: [":com.android.apex.cts.shim.v2_prebuilt"],
-}
-
-java_test_host {
     name: "apexd_host_tests",
     srcs:  [
         "src/**/ApexdHostTest.java",
@@ -296,6 +287,7 @@ java_test_host {
         "module_test_util",
         "truth-prebuilt",
         "apex_manifest_proto_java",
+        "frameworks-base-hostutils"
     ],
     test_config: "apexd-host-tests.xml",
     test_suites: ["general-tests"],

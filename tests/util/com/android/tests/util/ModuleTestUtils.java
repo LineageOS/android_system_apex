@@ -120,6 +120,14 @@ public class ModuleTestUtils {
         throw new IOException("Cannot find " + testFileName);
     }
 
+    /**
+     * Installs packages using staged install flow and waits for pre-reboot verification to complete
+     */
+    public String installStagedPackage(File pkg) throws Exception {
+        return mTest.getDevice().installPackage(pkg, false,
+                "--staged", "--wait-for-staged-ready");
+    }
+
     private String runCmd(String cmd) {
         CLog.d("About to run command: %s", cmd);
         CommandResult result = mRunUtil.runTimedCmd(1000 * 60 * 5, cmd.split("\\s+"));
@@ -166,24 +174,6 @@ public class ModuleTestUtils {
         }
         Assert.assertTrue("Staged session wasn't ready in " + WAIT_FOR_SESSION_READY_TTL,
                 sessionReady);
-    }
-
-    /**
-     * Abandons any staged session that is marked {@code ready}
-     */
-    public void abandonActiveStagedSession() throws DeviceNotAvailableException {
-        CommandResult res = mTest.getDevice().executeShellV2Command("pm list staged-sessions "
-                + "--only-ready --only-parent --only-sessionid");
-        assertThat(res.getStderr()).isEqualTo("");
-        String activeSessionId = res.getStdout();
-        if (activeSessionId != null && !activeSessionId.equals("")) {
-            res = mTest.getDevice().executeShellV2Command("pm install-abandon "
-                    + activeSessionId);
-            if (!res.getStderr().equals("") || res.getStatus() != CommandStatus.SUCCESS) {
-                CLog.d("Failed to abandon session " + activeSessionId
-                        + " Error: " + res.getStderr());
-            }
-        }
     }
 
     /**

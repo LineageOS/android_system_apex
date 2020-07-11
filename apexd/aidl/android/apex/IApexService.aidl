@@ -52,6 +52,11 @@ interface IApexService {
    void destroyDeSnapshots(int rollback_id);
 
    /**
+    * Deletes credential-encrypted snapshots for the given user, for the given rollback id.
+    */
+   void destroyCeSnapshots(int user_id, int rollback_id);
+
+   /**
     * Deletes all credential-encrypted snapshots for the given user, except for
     * those listed in retain_rollback_ids.
     */
