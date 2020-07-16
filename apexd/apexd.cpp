@@ -624,20 +624,23 @@ Result<void> PostinstallPackages(const std::vector<ApexFile>& apexes) {
                                 &StagePostInstall);
 }
 
-template <typename RetType, typename Fn>
-RetType HandlePackages(const std::vector<std::string>& paths, Fn fn) {
-  // 1) Open all APEXes.
-  std::vector<ApexFile> apex_files;
+// Converts a list of apex file paths into a list of ApexFile objects
+//
+// Returns error when trying to open empty set of inputs.
+Result<std::vector<ApexFile>> OpenApexFiles(
+    const std::vector<std::string>& paths) {
+  if (paths.empty()) {
+    return Errorf("Empty set of inputs");
+  }
+  std::vector<ApexFile> ret;
   for (const std::string& path : paths) {
     Result<ApexFile> apex_file = ApexFile::Open(path);
     if (!apex_file.ok()) {
       return apex_file.error();
     }
-    apex_files.emplace_back(std::move(*apex_file));
+    ret.emplace_back(std::move(*apex_file));
   }
-
-  // 2) Dispatch.
-  return fn(apex_files);
+  return ret;
 }
 
 Result<void> ValidateStagingShimApex(const ApexFile& to) {
@@ -694,21 +697,20 @@ Result<void> VerifyPackageInstall(const ApexFile& apex_file) {
 template <typename VerifyApexFn>
 Result<std::vector<ApexFile>> verifyPackages(
     const std::vector<std::string>& paths, const VerifyApexFn& verify_apex_fn) {
-  if (paths.empty()) {
-    return Errorf("Empty set of inputs");
+  Result<std::vector<ApexFile>> apex_files = OpenApexFiles(paths);
+  if (!apex_files.ok()) {
+    return apex_files.error();
   }
+
   LOG(DEBUG) << "verifyPackages() for " << Join(paths, ',');
 
-  auto verify_fn = [&](std::vector<ApexFile>& apexes) {
-    for (const ApexFile& apex_file : apexes) {
-      Result<void> result = verify_apex_fn(apex_file);
-      if (!result.ok()) {
-        return Result<std::vector<ApexFile>>(result.error());
-      }
+  for (const ApexFile& apex_file : *apex_files) {
+    Result<void> result = verify_apex_fn(apex_file);
+    if (!result.ok()) {
+      return result.error();
     }
-    return Result<std::vector<ApexFile>>(std::move(apexes));
-  };
-  return HandlePackages<Result<std::vector<ApexFile>>>(paths, verify_fn);
+  }
+  return std::move(*apex_files);
 }
 
 Result<ApexFile> verifySessionDir(const int session_id) {
@@ -1654,19 +1656,21 @@ void scanStagedSessionsDirAndStage() {
 }
 
 Result<void> preinstallPackages(const std::vector<std::string>& paths) {
-  if (paths.empty()) {
-    return Errorf("Empty set of inputs");
+  Result<std::vector<ApexFile>> apex_files = OpenApexFiles(paths);
+  if (!apex_files.ok()) {
+    return apex_files.error();
   }
   LOG(DEBUG) << "preinstallPackages() for " << Join(paths, ',');
-  return HandlePackages<Result<void>>(paths, PreinstallPackages);
+  return PreinstallPackages(*apex_files);
 }
 
 Result<void> postinstallPackages(const std::vector<std::string>& paths) {
-  if (paths.empty()) {
-    return Errorf("Empty set of inputs");
+  Result<std::vector<ApexFile>> apex_files = OpenApexFiles(paths);
+  if (!apex_files.ok()) {
+    return apex_files.error();
   }
   LOG(DEBUG) << "postinstallPackages() for " << Join(paths, ',');
-  return HandlePackages<Result<void>>(paths, PostinstallPackages);
+  return PostinstallPackages(*apex_files);
 }
 
 namespace {
