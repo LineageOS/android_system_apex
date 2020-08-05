@@ -88,8 +88,6 @@ android::base::Result<void> destroyCeSnapshotsNotSpecified(
     int user_id, const std::vector<int>& retain_rollback_ids);
 
 int onBootstrap();
-// Small helper function to tell if device is currently booting.
-bool isBooting();
 // Sets the values of gVoldService and gInFsCheckpointMode.
 void initializeVold(CheckpointInterface* checkpoint_service);
 // Initializes in-memory state (e.g. pre-installed data, activated apexes).

@@ -144,10 +144,10 @@ cc_library_static {
   srcs: [
     "apex_database.cpp",
     "apexd.cpp",
+    "apexd_lifecycle.cpp",
     "apexd_loop.cpp",
     "apexd_prepostinstall.cpp",
     "apexd_private.cpp",
-    "apexd_prop.cpp",
     "apexd_session.cpp",
     "apexd_verity.cpp",
   ],

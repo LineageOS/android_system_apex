@@ -24,9 +24,9 @@
 #include "apex_preinstalled_data.h"
 #include "apex_shim.h"
 #include "apexd_checkpoint.h"
+#include "apexd_lifecycle.h"
 #include "apexd_loop.h"
 #include "apexd_prepostinstall.h"
-#include "apexd_prop.h"
 #include "apexd_rollback_utils.h"
 #include "apexd_session.h"
 #include "apexd_utils.h"
@@ -99,12 +99,6 @@ namespace apex {
 using MountedApexData = MountedApexDatabase::MountedApexData;
 
 namespace {
-
-// These should be in-sync with system/sepolicy/private/property_contexts
-static constexpr const char* kApexStatusSysprop = "apexd.status";
-static constexpr const char* kApexStatusStarting = "starting";
-static constexpr const char* kApexStatusActivated = "activated";
-static constexpr const char* kApexStatusReady = "ready";
 
 static constexpr const char* kBuildFingerprintSysprop = "ro.build.fingerprint";
 
@@ -1536,7 +1530,7 @@ void deleteDePreRestoreSnapshots(const ApexSession& session) {
 }
 
 void onBootCompleted() {
-  markBootCompleted();
+  ApexdLifecycle::getInstance().markBootCompleted();
   bootCompletedCleanup();
 }
 
@@ -2272,11 +2266,6 @@ int unmountAll() {
     }
   });
   return ret;
-}
-
-bool isBooting() {
-  auto status = GetProperty(kApexStatusSysprop, "");
-  return status != kApexStatusReady && status != kApexStatusActivated;
 }
 
 Result<void> remountPackages() {
