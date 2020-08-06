@@ -23,6 +23,7 @@ import static org.junit.Assume.assumeTrue;
 
 import android.platform.test.annotations.RequiresDevice;
 
+import com.android.cts.install.lib.host.InstallUtilsHost;
 import com.android.tests.rollback.host.AbandonSessionsRule;
 import com.android.tests.util.ModuleTestUtils;
 import com.android.tradefed.config.Option;
@@ -56,6 +57,7 @@ public abstract class ApexE2EBaseHostTest extends BaseHostJUnit4Test {
 
     /* protected so that derived tests can have access to test utils automatically */
     protected final ModuleTestUtils mUtils = new ModuleTestUtils(this);
+    private final InstallUtilsHost mHostUtils = new InstallUtilsHost(this);
 
     @Rule
     public AbandonSessionsRule mHostTestRule = new AbandonSessionsRule(this);
@@ -69,13 +71,13 @@ public abstract class ApexE2EBaseHostTest extends BaseHostJUnit4Test {
 
     @Before
     public void setUp() throws Exception {
-        assumeTrue("Updating APEX is not supported", mUtils.isApexUpdateSupported());
+        assumeTrue("Updating APEX is not supported", mHostUtils.isApexUpdateSupported());
         uninstallAllApexes();
     }
 
     @After
     public void tearDown() throws Exception {
-        assumeTrue("Updating APEX is not supported", mUtils.isApexUpdateSupported());
+        assumeTrue("Updating APEX is not supported", mHostUtils.isApexUpdateSupported());
         uninstallAllApexes();
     }
 
