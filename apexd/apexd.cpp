@@ -355,7 +355,8 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
                                          const std::string& mountPoint,
                                          const std::string& device_name,
                                          const std::string& hashtree_file,
-                                         bool verifyImage) {
+                                         bool verifyImage,
+                                         bool tempMount = false) {
   LOG(VERBOSE) << "Creating mount point: " << mountPoint;
   // Note: the mount point could exist in case when the APEX was activated
   // during the bootstrap phase (e.g., the runtime or tzdata APEX).
@@ -407,7 +408,8 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
   std::string blockDevice = loopbackDevice.name;
   MountedApexData apex_data(loopbackDevice.name, apex.GetPath(), mountPoint,
                             /* device_name = */ "",
-                            /* hashtree_loop_name = */ "");
+                            /* hashtree_loop_name = */ "",
+                            /* is_temp_mount */ tempMount);
 
   // for APEXes in immutable partitions, we don't need to mount them on
   // dm-verity because they are already in the dm-verity protected partition;
@@ -506,13 +508,16 @@ Result<MountedApexData> VerifyAndTempMountPackage(
       return ErrnoError() << "Failed to unlink " << hashtree_file;
     }
   }
-  auto ret = MountPackageImpl(apex, mount_point, temp_device_name,
-                              hashtree_file, /* verifyImage = */ true);
+  auto ret =
+      MountPackageImpl(apex, mount_point, temp_device_name, hashtree_file,
+                       /* verifyImage = */ true, /* tempMount = */ true);
   if (!ret.ok()) {
     LOG(DEBUG) << "Cleaning up " << hashtree_file;
     if (TEMP_FAILURE_RETRY(unlink(hashtree_file.c_str())) != 0) {
       PLOG(ERROR) << "Failed to unlink " << hashtree_file;
     }
+  } else {
+    gMountedApexes.AddMountedApex(apex.GetManifest().name(), false, *ret);
   }
   return ret;
 }
@@ -555,7 +560,8 @@ Result<void> Unmount(const MountedApexData& data) {
 
 template <typename VerifyFn>
 Result<void> RunVerifyFnInsideTempMount(const ApexFile& apex,
-                                        const VerifyFn& verify_fn) {
+                                        const VerifyFn& verify_fn,
+                                        bool unmount_during_cleanup) {
   // Temp mount image of this apex to validate it was properly signed;
   // this will also read the entire block device through dm-verity, so
   // we can be sure there is no corruption.
@@ -570,11 +576,15 @@ Result<void> RunVerifyFnInsideTempMount(const ApexFile& apex,
     return mount_status.error();
   }
   auto cleaner = [&]() {
-    LOG(DEBUG) << "Unmounting " << temp_mount_point;
-    Result<void> result = Unmount(*mount_status);
-    if (!result.ok()) {
-      LOG(WARNING) << "Failed to unmount " << temp_mount_point << " : "
-                   << result.error();
+    if (unmount_during_cleanup) {
+      LOG(DEBUG) << "Unmounting " << temp_mount_point;
+      Result<void> result = Unmount(*mount_status);
+      if (!result.ok()) {
+        LOG(WARNING) << "Failed to unmount " << temp_mount_point << " : "
+                     << result.error();
+      }
+      gMountedApexes.RemoveMountedApex(apex.GetManifest().name(),
+                                       apex.GetPath(), true);
     }
   };
   auto scope_guard = android::base::make_scope_guard(cleaner);
@@ -584,6 +594,11 @@ Result<void> RunVerifyFnInsideTempMount(const ApexFile& apex,
 template <typename HookFn, typename HookCall>
 Result<void> PrePostinstallPackages(const std::vector<ApexFile>& apexes,
                                     HookFn fn, HookCall call) {
+  auto scope_guard = android::base::make_scope_guard([&]() {
+    for (const ApexFile& apex_file : apexes) {
+      apexd_private::UnmountTempMount(apex_file);
+    }
+  });
   if (apexes.empty()) {
     return Errorf("Empty set of inputs");
   }
@@ -647,7 +662,7 @@ Result<void> ValidateStagingShimApex(const ApexFile& to) {
   auto verify_fn = [&](const std::string& system_apex_path) {
     return shim::ValidateUpdate(system_apex_path, to.GetPath());
   };
-  return RunVerifyFnInsideTempMount(*system_shim, verify_fn);
+  return RunVerifyFnInsideTempMount(*system_shim, verify_fn, true);
 }
 
 // A version of apex verification that happens during boot.
@@ -685,7 +700,7 @@ Result<void> VerifyPackageInstall(const ApexFile& apex_file) {
   constexpr const auto kSuccessFn = [](const std::string& /*mount_point*/) {
     return Result<void>{};
   };
-  return RunVerifyFnInsideTempMount(apex_file, kSuccessFn);
+  return RunVerifyFnInsideTempMount(apex_file, kSuccessFn, false);
 }
 
 template <typename VerifyApexFn>
@@ -903,6 +918,43 @@ Result<MountedApexData> TempMountPackage(const ApexFile& apex,
                                          const std::string& mount_point) {
   // TODO(b/139041058): consolidate these two methods.
   return android::apex::VerifyAndTempMountPackage(apex, mount_point);
+}
+
+Result<void> UnmountTempMount(const ApexFile& apex) {
+  const ApexManifest& manifest = apex.GetManifest();
+  LOG(VERBOSE) << "Unmounting all temp mounts for package " << manifest.name();
+
+  bool finished_unmounting = false;
+  // If multiple temp mounts exist, ensure that all are unmounted.
+  while (!finished_unmounting) {
+    Result<MountedApexData> data =
+        apexd_private::getTempMountedApexData(manifest.name());
+    if (!data.ok()) {
+      finished_unmounting = true;
+    } else {
+      gMountedApexes.RemoveMountedApex(manifest.name(), data->full_path, true);
+      Unmount(*data);
+    }
+  }
+  return {};
+}
+
+Result<MountedApexData> getTempMountedApexData(const std::string& package) {
+  bool found = false;
+  Result<MountedApexData> mount_data;
+  gMountedApexes.ForallMountedApexes(
+      package,
+      [&](const MountedApexData& data, [[maybe_unused]] bool latest) {
+        if (!found) {
+          mount_data = data;
+          found = true;
+        }
+      },
+      true);
+  if (found) {
+    return mount_data;
+  }
+  return Error() << "No temp mount data found for " << package;
 }
 
 Result<void> Unmount(const MountedApexData& data) {

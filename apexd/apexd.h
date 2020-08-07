@@ -24,6 +24,7 @@
 #include <android-base/result.h>
 
 #include "apex_constants.h"
+#include "apex_database.h"
 #include "apex_file.h"
 
 namespace android {
@@ -116,6 +117,9 @@ void bootCompletedCleanup();
 int snapshotOrRestoreDeUserData();
 
 int unmountAll();
+
+android::base::Result<MountedApexDatabase::MountedApexData>
+getTempMountedApexData(const std::string& package);
 
 // Optimistically tries to remount as many APEX packages as possible.
 // For more documentation see corresponding binder call in IApexService.aidl.
