@@ -22,7 +22,8 @@ import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
-import com.android.cts.install.lib.host.InstallUtilsHost;
+import android.cts.install.lib.host.InstallUtilsHost;
+
 import com.android.tests.rollback.host.AbandonSessionsRule;
 import com.android.tests.util.ModuleTestUtils;
 import com.android.tradefed.device.ITestDevice;
