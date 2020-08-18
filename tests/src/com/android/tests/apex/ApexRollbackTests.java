@@ -26,6 +26,7 @@ import android.cts.install.lib.host.InstallUtilsHost;
 
 import com.android.tests.rollback.host.AbandonSessionsRule;
 import com.android.tests.util.ModuleTestUtils;
+import com.android.tradefed.device.DeviceNotAvailableException;
 import com.android.tradefed.device.ITestDevice;
 import com.android.tradefed.device.ITestDevice.ApexInfo;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
@@ -399,5 +400,80 @@ public class ApexRollbackTests extends BaseHostJUnit4Test {
         } finally {
             getDevice().executeShellV2Command("rm /data/apex/active/apexd_test_v2.apex");
         }
+    }
+
+    /**
+     * Test reason for revert is properly logged during boot loops
+     */
+    @Test
+    public void testReasonForRevertIsLoggedDuringBootloop() throws Exception {
+        assumeTrue("Device does not support updating APEX", mHostUtils.isApexUpdateSupported());
+        assumeTrue("Fs checkpointing is enabled", mHostUtils.isCheckpointSupported());
+
+        ITestDevice device = getDevice();
+        // Skip this test if there is already crashing process on device
+        final boolean hasCrashingProcess =
+                device.getBooleanProperty("sys.init.updatable_crashing", false);
+        final String crashingProcess =
+                device.getProperty("sys.init.updatable_crashing_process_name");
+        assumeFalse(
+                "Device already has a crashing process: " + crashingProcess, hasCrashingProcess);
+        final File apexFile = mUtils.getTestFile("com.android.apex.cts.shim.v2.apex");
+
+        // To simulate an apex update that causes a boot loop, we install a
+        // trigger_watchdog.rc file that arranges for a trigger_watchdog.sh
+        // script to be run at boot. The trigger_watchdog.sh script checks if
+        // the apex version specified in the property
+        // persist.debug.trigger_watchdog.apex is installed. If so,
+        // trigger_watchdog.sh repeatedly kills the system server causing a
+        // boot loop.
+        assertThat(device.setProperty("persist.debug.trigger_watchdog.apex",
+                "com.android.apex.cts.shim@2")).isTrue();
+        final String error = mUtils.installStagedPackage(apexFile);
+        assertThat(error).isNull();
+
+        final String sessionIdToCheck = device.executeShellCommand("pm get-stagedsessions "
+                + "--only-ready --only-parent --only-sessionid").trim();
+        assertThat(sessionIdToCheck).isNotEmpty();
+
+        // After we reboot the device, we expect the device to go into boot
+        // loop from trigger_watchdog.sh. Native watchdog should detect and
+        // report the boot loop, causing apexd to roll back to the previous
+        // version of the apex and force reboot. When the device comes up
+        // after the forced reboot, trigger_watchdog.sh will see the different
+        // version of the apex and refrain from forcing a boot loop, so the
+        // device will be recovered.
+        device.reboot();
+
+        final ApexInfo ctsShimV1 = new ApexInfo("com.android.apex.cts.shim", 1L);
+        final ApexInfo ctsShimV2 = new ApexInfo("com.android.apex.cts.shim", 2L);
+        final Set<ApexInfo> activatedApexes = device.getActiveApexes();
+        assertThat(activatedApexes).contains(ctsShimV1);
+        assertThat(activatedApexes).doesNotContain(ctsShimV2);
+
+        // Assert that a session has failed with the expected reason
+        final String stagedSessionString = getStagedSession(sessionIdToCheck);
+        assertThat(stagedSessionString).contains("Reason for revert");
+
+    }
+
+    String getStagedSession(String sessionId) throws DeviceNotAvailableException {
+        final String[] lines = getDevice().executeShellCommand(
+                "pm get-stagedsessions --only-parent").split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("sessionId = " + sessionId)) {
+                // Join all lines realted to this session
+                final StringBuilder result = new StringBuilder(lines[i]);
+                for (int j = i + 1; j < lines.length; j++) {
+                    if (lines[j].contains("sessionId = ")) {
+                        // A new session block has started
+                        break;
+                    }
+                    result.append(lines[j]);
+                }
+                return result.toString();
+            }
+        }
+        return "";
     }
 }
