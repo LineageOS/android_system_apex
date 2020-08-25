@@ -41,7 +41,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class ModuleTestUtils {
-    private static final String SHIM = "com.android.apex.cts.shim";
     private static final String APEX_INFO_EXTRACT_REGEX =
             ".*package:\\sname='(\\S+)\\'\\sversionCode='(\\d+)'\\s.*";
 
@@ -121,8 +120,7 @@ public class ModuleTestUtils {
      * Installs packages using staged install flow and waits for pre-reboot verification to complete
      */
     public String installStagedPackage(File pkg) throws Exception {
-        return mTest.getDevice().installPackage(pkg, false,
-                "--staged", "--wait-for-staged-ready");
+        return mTest.getDevice().installPackage(pkg, false, "--staged");
     }
 
     private String runCmd(String cmd) {
