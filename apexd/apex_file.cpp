@@ -37,6 +37,7 @@
 #include "apexd_utils.h"
 #include "string_log.h"
 
+using android::base::borrowed_fd;
 using android::base::EndsWith;
 using android::base::Error;
 using android::base::ReadFullyAtOffset;
@@ -52,6 +53,28 @@ namespace {
 constexpr const char* kImageFilename = "apex_payload.img";
 constexpr const char* kBundledPublicKeyFilename = "apex_pubkey";
 
+struct FsMagic {
+  const char* type;
+  int32_t offset;
+  int16_t len;
+  const char* magic;
+};
+constexpr const FsMagic kFsType[] = {{"f2fs", 1024, 4, "\x10\x20\xf5\xf2"},
+                                     {"ext4", 1024 + 0x38, 2, "\123\357"}};
+
+Result<std::string> RetrieveFsType(borrowed_fd fd, int32_t image_offset) {
+  for (const auto& fs : kFsType) {
+    char buf[fs.len];
+    if (!ReadFullyAtOffset(fd, buf, fs.len, image_offset + fs.offset)) {
+      return ErrnoError() << "Couldn't read filesystem magic";
+    }
+    if (memcmp(buf, fs.magic, fs.len) == 0) {
+      return std::string(fs.type);
+    }
+  }
+  return Error() << "Couldn't find filesystem magic";
+}
+
 }  // namespace
 
 Result<ApexFile> ApexFile::Open(const std::string& path) {
@@ -63,7 +86,12 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   ZipArchiveHandle handle;
   auto handle_guard =
       android::base::make_scope_guard([&handle] { CloseArchive(handle); });
-  int ret = OpenArchive(path.c_str(), &handle);
+  unique_fd fd(open(path.c_str(), O_RDONLY | O_BINARY | O_CLOEXEC));
+  if (fd < 0) {
+    return Error() << "Failed to open package " << path << ": "
+                   << "I/O error";
+  }
+  int ret = OpenArchiveFd(fd.get(), path.c_str(), &handle, false);
   if (ret < 0) {
     return Error() << "Failed to open package " << path << ": "
                    << ErrorCodeString(ret);
@@ -78,6 +106,12 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   }
   image_offset = entry.offset;
   image_size = entry.uncompressed_length;
+
+  auto fs_type = RetrieveFsType(fd, image_offset);
+  if (!fs_type.ok()) {
+    return Error() << "Failed to retrieve filesystem type for " << path << ": "
+                   << fs_type.error();
+  }
 
   ret = FindEntry(handle, kManifestFilenamePb, &entry);
   if (ret < 0) {
@@ -113,7 +147,7 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   }
 
   return ApexFile(path, image_offset, image_size, std::move(*manifest), pubkey,
-                  isPathForBuiltinApexes(path));
+                  isPathForBuiltinApexes(path), *fs_type);
 }
 
 // AVB-related code.

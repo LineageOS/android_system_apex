@@ -466,8 +466,8 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
     mountFlags |= MS_NOEXEC;
   }
 
-  if (mount(blockDevice.c_str(), mountPoint.c_str(), "ext4", mountFlags,
-            nullptr) == 0) {
+  if (mount(blockDevice.c_str(), mountPoint.c_str(), apex.GetFsType().c_str(),
+            mountFlags, nullptr) == 0) {
     LOG(INFO) << "Successfully mounted package " << full_path << " on "
               << mountPoint;
     auto status = VerifyMountedImage(apex, mountPoint);

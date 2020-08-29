@@ -271,6 +271,22 @@ genrule {
 }
 
 genrule {
+  // Generates an apex with a corrupted filesystem superblock, which should cause
+  // Apex::Open to fail
+  name: "gen_corrupt_superblock_apex",
+  out: ["apex.apexd_test_corrupt_superblock_apex.apex"],
+  srcs: [":apex.apexd_test"],
+  tools: ["soong_zip", "zipalign"],
+  cmd: "unzip -q $(in) -d $(genDir) && " +
+       "dd if=/dev/zero of=$(genDir)/apex_payload.img conv=notrunc bs=1024 seek=1 count=1 && " +
+       "$(location soong_zip) -d -C $(genDir) -D $(genDir) " +
+       "-s apex_manifest.pb -s apex_payload.img -s apex_pubkey " +
+       "-o $(genDir)/unaligned.apex && " +
+       "$(location zipalign) -f 4096 $(genDir)/unaligned.apex " +
+       "$(genDir)/apex.apexd_test_corrupt_superblock_apex.apex"
+}
+
+genrule {
   // Generates an apex with a corrupted filesystem image, which should cause
   // dm-verity verification to fail
   name: "gen_corrupt_apex",
@@ -284,6 +300,28 @@ genrule {
        "-o $(genDir)/unaligned.apex && " +
        "$(location zipalign) -f 4096 $(genDir)/unaligned.apex " +
        "$(genDir)/apex.apexd_test_corrupt_apex.apex"
+}
+
+genrule {
+  // Extract the root digest with avbtool
+  name: "apex.apexd_test_digest",
+  out: ["apex.apexd_test_digest.txt"],
+  srcs: [":apex.apexd_test"],
+  tools: ["avbtool"],
+  cmd: "unzip -q $(in) -d $(genDir) apex_payload.img && " +
+       "$(location avbtool) print_partition_digests --image $(genDir)/apex_payload.img " +
+       "| cut -c 3-| tee $(out)"
+}
+
+genrule {
+  // Extract the root digest with avbtool
+  name: "apex.apexd_test_f2fs_digest",
+  out: ["apex.apexd_test_f2fs_digest.txt"],
+  srcs: [":apex.apexd_test_f2fs"],
+  tools: ["avbtool"],
+  cmd: "unzip -q $(in) -d $(genDir) apex_payload.img && " +
+       "$(location avbtool) print_partition_digests --image $(genDir)/apex_payload.img " +
+       "| cut -c 3-| tee $(out)"
 }
 
 cc_test {
@@ -300,10 +338,14 @@ cc_test {
   ],
   data: [
     ":apex.apexd_test",
+    ":apex.apexd_test_f2fs",
+    ":apex.apexd_test_digest",
+    ":apex.apexd_test_f2fs_digest",
     ":apex.apexd_test_different_app",
     ":apex.apexd_test_no_hashtree",
     ":apex.apexd_test_no_hashtree_2",
     ":apex.apexd_test_no_inst_key",
+    ":apex.apexd_test_f2fs_no_inst_key",
     ":apex.apexd_test_nocode",
     ":apex.apexd_test_postinstall",
     ":apex.apexd_test_preinstall",
@@ -312,6 +354,7 @@ cc_test {
     ":apex.corrupted_b146895998",
     ":gen_manifest_mismatch_apex",
     ":gen_manifest_mismatch_apex_no_hashtree",
+    ":gen_corrupt_superblock_apex",
     ":gen_corrupt_apex",
     ":com.android.apex.cts.shim.v1_prebuilt",
     ":com.android.apex.cts.shim.v2_prebuilt",
