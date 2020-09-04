@@ -83,14 +83,15 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   std::string manifest_content;
   std::string pubkey;
 
-  ZipArchiveHandle handle;
-  auto handle_guard =
-      android::base::make_scope_guard([&handle] { CloseArchive(handle); });
   unique_fd fd(open(path.c_str(), O_RDONLY | O_BINARY | O_CLOEXEC));
   if (fd < 0) {
     return Error() << "Failed to open package " << path << ": "
                    << "I/O error";
   }
+
+  ZipArchiveHandle handle;
+  auto handle_guard =
+      android::base::make_scope_guard([&handle] { CloseArchive(handle); });
   int ret = OpenArchiveFd(fd.get(), path.c_str(), &handle, false);
   if (ret < 0) {
     return Error() << "Failed to open package " << path << ": "
