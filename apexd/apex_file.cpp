@@ -23,28 +23,24 @@
 
 #include <filesystem>
 #include <fstream>
+#include <span>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/scopeguard.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
-#include <google/protobuf/util/message_differencer.h>
 #include <libavb/libavb.h>
+#include <ziparchive/zip_archive.h>
 
 #include "apex_constants.h"
-#include "apex_preinstalled_data.h"
 #include "apexd_utils.h"
-#include "string_log.h"
 
 using android::base::borrowed_fd;
-using android::base::EndsWith;
 using android::base::Error;
 using android::base::ReadFullyAtOffset;
 using android::base::Result;
-using android::base::StartsWith;
 using android::base::unique_fd;
-using google::protobuf::util::MessageDifferencer;
 
 namespace android {
 namespace apex {
@@ -148,7 +144,7 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
   }
 
   return ApexFile(path, image_offset, image_size, std::move(*manifest), pubkey,
-                  isPathForBuiltinApexes(path), *fs_type);
+                  *fs_type);
 }
 
 // AVB-related code.
@@ -214,8 +210,10 @@ bool CompareKeys(const uint8_t* key, size_t length,
          memcmp(&public_key_content[0], key, length) == 0;
 }
 
-Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
-                                   size_t length) {
+// Verifies correctness of vbmeta and returns public key it was signed with.
+Result<std::span<const uint8_t>> verifyVbMetaSignature(const ApexFile& apex,
+                                                       const uint8_t* data,
+                                                       size_t length) {
   const uint8_t* pk;
   size_t pk_len;
   AvbVBMetaVerifyResult res;
@@ -236,28 +234,16 @@ Result<void> verifyVbMetaSignature(const ApexFile& apex, const uint8_t* data,
       return Error() << "Error verifying " << apex.GetPath() << ": "
                      << "unsupported version";
     default:
-      return Errorf("Unknown vmbeta_image_verify return value");
+      return Error() << "Unknown vmbeta_image_verify return value : " << res;
   }
 
-  Result<const std::string> public_key = getApexKey(apex.GetManifest().name());
-  if (public_key.ok()) {
-    // TODO(b/115718846)
-    // We need to decide whether we need rollback protection, and whether
-    // we can use the rollback protection provided by libavb.
-    if (!CompareKeys(pk, pk_len, *public_key)) {
-      return Error() << "Error verifying " << apex.GetPath() << ": "
-                     << "public key doesn't match the pre-installed one";
-    }
-  } else {
-    return public_key.error();
-  }
-  LOG(VERBOSE) << apex.GetPath() << ": public key matches.";
-  return {};
+  return std::span<const uint8_t>(pk, pk_len);
 }
 
 Result<std::unique_ptr<uint8_t[]>> verifyVbMeta(const ApexFile& apex,
                                                 const unique_fd& fd,
-                                                const AvbFooter& footer) {
+                                                const AvbFooter& footer,
+                                                const std::string& public_key) {
   if (footer.vbmeta_size > kVbMetaMaxSize) {
     return Errorf("VbMeta size in footer exceeds kVbMetaMaxSize.");
   }
@@ -269,10 +255,15 @@ Result<std::unique_ptr<uint8_t[]>> verifyVbMeta(const ApexFile& apex,
     return ErrnoError() << "Couldn't read AVB meta-data";
   }
 
-  Result<void> st =
+  Result<std::span<const uint8_t>> st =
       verifyVbMetaSignature(apex, vbmeta_buf.get(), footer.vbmeta_size);
   if (!st.ok()) {
     return st.error();
+  }
+
+  if (!CompareKeys(st->data(), st->size(), public_key)) {
+    return Error() << "Error verifying " << apex.GetPath() << " : "
+                   << "public key doesn't match the pre-installed one";
   }
 
   return vbmeta_buf;
@@ -326,7 +317,8 @@ Result<std::unique_ptr<AvbHashtreeDescriptor>> verifyDescriptor(
 
 }  // namespace
 
-Result<ApexVerityData> ApexFile::VerifyApexVerity() const {
+Result<ApexVerityData> ApexFile::VerifyApexVerity(
+    const std::string& public_key) const {
   ApexVerityData verityData;
 
   unique_fd fd(open(GetPath().c_str(), O_RDONLY | O_CLOEXEC));
@@ -340,7 +332,7 @@ Result<ApexVerityData> ApexFile::VerifyApexVerity() const {
   }
 
   Result<std::unique_ptr<uint8_t[]>> vbmeta_data =
-      verifyVbMeta(*this, fd, **footer);
+      verifyVbMeta(*this, fd, **footer, public_key);
   if (!vbmeta_data.ok()) {
     return vbmeta_data.error();
   }
@@ -367,63 +359,6 @@ Result<ApexVerityData> ApexFile::VerifyApexVerity() const {
   verityData.root_digest = getDigest(*verityData.desc, trailingData);
 
   return verityData;
-}
-
-Result<void> ApexFile::VerifyManifestMatches(
-    const std::string& mount_path) const {
-  Result<ApexManifest> verifiedManifest =
-      ReadManifest(mount_path + "/" + kManifestFilenamePb);
-  if (!verifiedManifest.ok()) {
-    return verifiedManifest.error();
-  }
-
-  if (!MessageDifferencer::Equals(manifest_, *verifiedManifest)) {
-    return Errorf(
-        "Manifest inside filesystem does not match manifest outside it");
-  }
-
-  return {};
-}
-
-Result<std::vector<std::string>> FindApexes(
-    const std::vector<std::string>& paths) {
-  std::vector<std::string> result;
-  for (const auto& path : paths) {
-    auto exist = PathExists(path);
-    if (!exist.ok()) {
-      return exist.error();
-    }
-    if (!*exist) continue;
-
-    const auto& apexes = FindApexFilesByName(path);
-    if (!apexes.ok()) {
-      return apexes;
-    }
-
-    result.insert(result.end(), apexes->begin(), apexes->end());
-  }
-  return result;
-}
-
-Result<std::vector<std::string>> FindApexFilesByName(const std::string& path) {
-  auto filter_fn = [](const std::filesystem::directory_entry& entry) {
-    std::error_code ec;
-    if (entry.is_regular_file(ec) &&
-        EndsWith(entry.path().filename().string(), kApexPackageSuffix)) {
-      return true;  // APEX file, take.
-    }
-    return false;
-  };
-  return ReadDir(path, filter_fn);
-}
-
-bool isPathForBuiltinApexes(const std::string& path) {
-  for (const auto& dir : kApexPackageBuiltinDirs) {
-    if (StartsWith(path, dir)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 }  // namespace apex

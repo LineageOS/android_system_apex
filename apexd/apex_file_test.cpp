@@ -26,7 +26,6 @@
 #include <ziparchive/zip_archive.h>
 
 #include "apex_file.h"
-#include "apex_preinstalled_data.h"
 
 using android::base::Result;
 
@@ -93,12 +92,11 @@ TEST_P(ApexFileTest, GetApexManifest) {
 }
 
 TEST_P(ApexFileTest, VerifyApexVerity) {
-  ASSERT_RESULT_OK(collectPreinstalledData({"/system_ext/apex"}));
   const std::string filePath = testDataDir + GetParam().prefix + ".apex";
   Result<ApexFile> apexFile = ApexFile::Open(filePath);
   ASSERT_RESULT_OK(apexFile);
 
-  auto verity_or = apexFile->VerifyApexVerity();
+  auto verity_or = apexFile->VerifyApexVerity(apexFile->GetBundledPublicKey());
   ASSERT_RESULT_OK(verity_or);
 
   const ApexVerityData& data = *verity_or;
@@ -117,13 +115,12 @@ TEST_P(ApexFileTest, VerifyApexVerity) {
   EXPECT_EQ(std::string(rootDigest), data.root_digest);
 }
 
-TEST_P(ApexFileTest, VerifyApexVerityNoKeyInst) {
-  const std::string filePath =
-      testDataDir + GetParam().prefix + "_no_inst_key.apex";
+TEST_P(ApexFileTest, VerifyApexVerityWrongKey) {
+  const std::string filePath = testDataDir + GetParam().prefix + ".apex";
   Result<ApexFile> apexFile = ApexFile::Open(filePath);
   ASSERT_RESULT_OK(apexFile);
 
-  auto verity_or = apexFile->VerifyApexVerity();
+  auto verity_or = apexFile->VerifyApexVerity("wrong-key");
   ASSERT_FALSE(verity_or.ok());
 }
 
@@ -145,7 +142,7 @@ TEST(ApexFileTest, CorrutedApexB146895998) {
   const std::string apex_path = testDataDir + "corrupted_b146895998.apex";
   Result<ApexFile> apex = ApexFile::Open(apex_path);
   ASSERT_RESULT_OK(apex);
-  ASSERT_FALSE(apex->VerifyApexVerity());
+  ASSERT_FALSE(apex->VerifyApexVerity("ignored"));
 }
 
 TEST_P(ApexFileTest, RetrieveFsType) {
