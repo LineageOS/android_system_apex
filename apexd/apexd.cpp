@@ -627,9 +627,26 @@ Result<void> PrePostinstallPackages(const std::vector<ApexFile>& apexes,
     }
   }
 
-  // 2) If we found hooks, run the pre/post-install.
+  // 2) If we found hooks, temp mount if required, and run the pre/post-install.
   if (has_hooks) {
-    Result<void> install_status = (*call)(apexes);
+    std::vector<std::string> mount_points;
+    for (const ApexFile& apex : apexes) {
+      // Retrieve the mount data if the apex is already temp mounted, temp
+      // mount it otherwise.
+      std::string mount_point =
+          apexd_private::GetPackageTempMountPoint(apex.GetManifest());
+      Result<MountedApexData> mount_data =
+          apexd_private::getTempMountedApexData(apex.GetManifest().name());
+      if (!mount_data.ok()) {
+        mount_data = apexd_private::TempMountPackage(apex, mount_point);
+        if (!mount_data.ok()) {
+          return mount_data.error();
+        }
+      }
+      mount_points.push_back(mount_point);
+    }
+
+    Result<void> install_status = (*call)(apexes, mount_points);
     if (!install_status.ok()) {
       return install_status;
     }
