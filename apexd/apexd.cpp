@@ -638,7 +638,7 @@ Result<void> PrePostinstallPackages(const std::vector<ApexFile>& apexes,
       Result<MountedApexData> mount_data =
           apexd_private::getTempMountedApexData(apex.GetManifest().name());
       if (!mount_data.ok()) {
-        mount_data = apexd_private::TempMountPackage(apex, mount_point);
+        mount_data = VerifyAndTempMountPackage(apex, mount_point);
         if (!mount_data.ok()) {
           return mount_data.error();
         }
@@ -951,12 +951,6 @@ Result<void> MountPackage(const ApexFile& apex, const std::string& mountPoint) {
 
 namespace apexd_private {
 
-Result<MountedApexData> TempMountPackage(const ApexFile& apex,
-                                         const std::string& mount_point) {
-  // TODO(b/139041058): consolidate these two methods.
-  return android::apex::VerifyAndTempMountPackage(apex, mount_point);
-}
-
 Result<void> UnmountTempMount(const ApexFile& apex) {
   const ApexManifest& manifest = apex.GetManifest();
   LOG(VERBOSE) << "Unmounting all temp mounts for package " << manifest.name();
@@ -992,11 +986,6 @@ Result<MountedApexData> getTempMountedApexData(const std::string& package) {
     return mount_data;
   }
   return Error() << "No temp mount data found for " << package;
-}
-
-Result<void> Unmount(const MountedApexData& data) {
-  // TODO(b/139041058): consolidate these two methods.
-  return android::apex::Unmount(data);
 }
 
 bool IsMounted(const std::string& full_path) {
