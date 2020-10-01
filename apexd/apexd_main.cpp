@@ -102,7 +102,7 @@ void InstallSigtermSignalHandler() {
 int main(int /*argc*/, char** argv) {
   android::base::InitLogging(argv, &android::base::KernelLogger);
   // TODO(b/158468454): add a -v flag or an external setting to change severity.
-  android::base::SetMinimumLogSeverity(android::base::VERBOSE);
+  android::base::SetMinimumLogSeverity(android::base::INFO);
 
   // set umask to 022 so that files/dirs created are accessible to other
   // processes e.g.) apex-info-file.xml is supposed to be read by other
