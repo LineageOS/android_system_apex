@@ -116,7 +116,7 @@ int main(int /*argc*/, char** argv) {
     LOG(INFO) << "This device does not support updatable APEX. Exiting";
     if (!has_subcommand) {
       // mark apexd as activated so that init can proceed
-      android::apex::onAllPackagesActivated();
+      android::apex::onAllPackagesActivated(/*is_bootstrap=*/false);
     } else if (strcmp("--snapshotde", argv[1]) == 0) {
       // mark apexd as ready
       android::apex::onAllPackagesReady();
@@ -154,7 +154,7 @@ int main(int /*argc*/, char** argv) {
     // themselves should wait for the ready status instead, which is set when
     // the "--snapshotde" subcommand is received and snapshot/restore is
     // complete.
-    android::apex::onAllPackagesActivated();
+    android::apex::onAllPackagesActivated(/*is_bootstrap=*/false);
     lifecycle.waitForBootStatus(android::apex::revertActiveSessionsAndReboot);
   }
 
