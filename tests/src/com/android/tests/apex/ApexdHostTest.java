@@ -58,14 +58,23 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
     @Rule
     public AbandonSessionsRule mHostTestRule = new AbandonSessionsRule(this);
 
+    private boolean mWasAdbRoot = false;
+
     @Before
     public void setUp() throws Exception {
         mHostUtils.uninstallShimApexIfNecessary();
+        mWasAdbRoot = getDevice().isAdbRoot();
+        if (!mWasAdbRoot) {
+            assumeTrue("Device requires root", getDevice().enableAdbRoot());
+        }
     }
 
     @After
     public void tearDown() throws Exception {
         mHostUtils.uninstallShimApexIfNecessary();
+        if (!mWasAdbRoot) {
+            getDevice().disableAdbRoot();
+        }
     }
 
     @Test
