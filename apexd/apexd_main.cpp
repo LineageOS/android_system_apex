@@ -141,7 +141,10 @@ int main(int /*argc*/, char** argv) {
 
   bool booting = lifecycle.isBooting();
   if (booting) {
-    android::apex::migrateSessionsDirIfNeeded();
+    if (auto res = android::apex::migrateSessionsDirIfNeeded(); !res.ok()) {
+      LOG(ERROR) << "Failed to migrate sessions to /metadata partition : "
+                 << res.error();
+    }
     android::apex::onStart();
   }
   android::apex::binder::CreateAndRegisterService();

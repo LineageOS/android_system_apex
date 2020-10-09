@@ -284,4 +284,32 @@ public class ApexdHostTest extends BaseHostJUnit4Test  {
         String updatedState = getDevice().executeShellV2Command(sessionStateCmd).getStdout();
         assertThat(updatedState).isEqualTo(initialState);
     }
+
+    /**
+     * Verifies that content of {@code /data/apex/sessions/} is migrated to the {@code
+     * /metadata/apex/sessions}.
+     */
+    @Test
+    public void testSessionsDirMigrationToMetadata() throws Exception {
+        assumeTrue("Device does not support updating APEX", mHostUtils.isApexUpdateSupported());
+        assumeTrue("Device requires root", getDevice().isAdbRoot());
+
+        try {
+            getDevice().executeShellV2Command("mkdir -p /data/apex/sessions/1543");
+            File file = File.createTempFile("foo", "bar");
+            getDevice().pushFile(file, "/data/apex/sessions/1543/file");
+
+            // During boot sequence apexd will move /data/apex/sessions/1543/file to
+            // /metadata/apex/sessions/1543/file.
+            getDevice().reboot();
+            assertWithMessage("Timed out waiting for device to boot").that(
+                    getDevice().waitForBootComplete(Duration.ofMinutes(2).toMillis())).isTrue();
+
+            assertThat(getDevice().doesFileExist("/metadata/apex/sessions/1543/file")).isTrue();
+            assertThat(getDevice().doesFileExist("/data/apex/sessions/1543/file")).isFalse();
+        } finally {
+            getDevice().executeShellV2Command("rm -R /data/apex/sessions/1543");
+            getDevice().executeShellV2Command("rm -R /metadata/apex/sessions/1543");
+        }
+    }
 }

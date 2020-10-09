@@ -1466,30 +1466,7 @@ Result<void> restoreCeData(const int user_id, const int rollback_id,
 //  Migrates sessions directory from /data/apex/sessions to
 //  /metadata/apex/sessions, if necessary.
 Result<void> migrateSessionsDirIfNeeded() {
-  namespace fs = std::filesystem;
-  auto from_path = std::string(kApexDataDir) + "/sessions";
-  auto exists = PathExists(from_path);
-  if (!exists.ok()) {
-    return Error() << "Failed to access " << from_path << ": "
-                   << exists.error();
-  }
-  if (!*exists) {
-    LOG(DEBUG) << from_path << " does not exist. Nothing to migrate.";
-    return {};
-  }
-  auto to_path = kApexSessionsDir;
-  std::error_code error_code;
-  fs::copy(from_path, to_path, fs::copy_options::recursive, error_code);
-  if (error_code) {
-    return Error() << "Failed to copy old sessions directory"
-                   << error_code.message();
-  }
-  fs::remove_all(from_path, error_code);
-  if (error_code) {
-    return Error() << "Failed to delete old sessions directory "
-                   << error_code.message();
-  }
-  return {};
+  return ApexSession::MigrateToMetadataSessionsDir();
 }
 
 Result<void> destroySnapshots(const std::string& base_dir,
@@ -1612,7 +1589,7 @@ void onBootCompleted() {
 }
 
 void scanStagedSessionsDirAndStage() {
-  LOG(INFO) << "Scanning " << kApexSessionsDir
+  LOG(INFO) << "Scanning " << ApexSession::GetSessionsDir()
             << " looking for sessions to be activated.";
 
   auto sessionsToActivate =
