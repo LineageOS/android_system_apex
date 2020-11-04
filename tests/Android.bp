@@ -179,8 +179,10 @@ java_test_host {
     libs: ["tradefed"],
     java_resources: [
         ":com.android.apex.test.bar",
+        ":com.android.apex.test.bar_stripped",
         ":com.android.apex.test.foo",
-        ":com.android.apex.test.sharedlibs",
+        ":com.android.apex.test.foo_stripped",
+        ":com.android.apex.test.sharedlibs_generated",
     ],
     static_libs: [
         "cts-install-lib-host",

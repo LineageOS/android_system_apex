@@ -37,3 +37,29 @@ cc_binary {
     apex_available: [ "com.android.apex.test.bar" ],
 }
 
+genrule {
+    name: "com.android.apex.test.bar_stripped",
+    out: ["com.android.apex.test.bar_stripped.apex"],
+    srcs: [
+        ":com.android.apex.test.bar",
+        "com.android.apex.test.bar.avbpubkey",
+        "com.android.apex.test.bar.pem",
+        "com.android.apex.test.bar.pk8",
+        "com.android.apex.test.bar.x509.pem",
+    ],
+    tools: [
+        "apexer",
+        "debugfs_static",
+        "shared_libs_repack",
+        "signapk",
+    ],
+    cmd: "$(location shared_libs_repack) " +
+         " --mode strip" +
+         " --key $(location com.android.apex.test.bar.pem)" +
+         " --input $(location :com.android.apex.test.bar)" +
+         " --output $(genDir)/com.android.apex.test.bar_stripped.apex" +
+         " --pk8key $(location com.android.apex.test.bar.pk8)" +
+         " --pubkey $(location com.android.apex.test.bar.avbpubkey)" +
+         " --x509key $(location com.android.apex.test.bar.x509.pem)" +
+         " --tmpdir $(genDir)",
+}

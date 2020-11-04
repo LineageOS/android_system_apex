@@ -45,15 +45,48 @@ public class SharedLibsApexTest extends BaseHostJUnit4Test {
     public final RuleChain ruleChain = RuleChain.outerRule(mTemporaryFolder).around(mPreparer);
 
     private static final String TEST_BAR_APEX = "com.android.apex.test.bar.apex";
+    private static final String TEST_BAR_APEX_STRIPPED = "com.android.apex.test.bar_stripped.apex";
     private static final String TEST_FOO_APEX = "com.android.apex.test.foo.apex";
-    private static final String TEST_SHAREDLIBS_APEX = "com.android.apex.test.sharedlibs.apex";
+    private static final String TEST_FOO_APEX_STRIPPED = "com.android.apex.test.foo_stripped.apex";
+    private static final String TEST_SHAREDLIBS_APEX =
+            "com.android.apex.test.sharedlibs_generated.apex";
 
+    /**
+     * Tests basic functionality of two apex packages being force-installed and the C++ binaries
+     * contained in them being executed correctly.
+     */
     @Test
     public void testInstallAndRunDefaultApexs() throws Exception {
         assumeTrue("Device does not support updating APEX", mHostUtils.isApexUpdateSupported());
         assumeTrue("Device requires root", getDevice().isAdbRoot());
 
-        for (String apex : new String[]{ TEST_BAR_APEX, TEST_FOO_APEX, TEST_SHAREDLIBS_APEX}) {
+        for (String apex : new String[]{TEST_BAR_APEX, TEST_FOO_APEX}) {
+            mPreparer.pushResourceFile(apex,
+                    "/system/apex/" + apex);
+        }
+        mPreparer.reboot();
+
+        String runAsResult = getDevice().executeShellCommand(
+                "/apex/com.android.apex.test.foo/bin/foo_test");
+        assertThat(runAsResult).contains("HELLO_FOO");
+        runAsResult = getDevice().executeShellCommand(
+                "/apex/com.android.apex.test.bar/bin/bar_test");
+        assertThat(runAsResult).contains("HELLO_BAR");
+    }
+
+    /**
+     * Tests functionality of shared libraries apex: installs two apexs "stripped" of libc++.so and
+     * one apex containing it and verifies that C++ binaries can run.
+     */
+    @Test
+    public void testInstallAndRunOptimizedApexs() throws Exception {
+        assumeTrue("Device does not support updating APEX", mHostUtils.isApexUpdateSupported());
+        assumeTrue("Device requires root", getDevice().isAdbRoot());
+
+        for (String apex : new String[]{
+                TEST_BAR_APEX_STRIPPED,
+                TEST_FOO_APEX_STRIPPED,
+                TEST_SHAREDLIBS_APEX}) {
             mPreparer.pushResourceFile(apex,
                     "/system/apex/" + apex);
         }

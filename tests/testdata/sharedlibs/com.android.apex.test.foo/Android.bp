@@ -36,3 +36,30 @@ cc_binary {
     srcs: ["foo_test.cc"],
     apex_available: [ "com.android.apex.test.foo" ],
 }
+
+genrule {
+    name: "com.android.apex.test.foo_stripped",
+    out: ["com.android.apex.test.foo_stripped.apex"],
+    srcs: [
+        ":com.android.apex.test.foo",
+        "com.android.apex.test.foo.avbpubkey",
+        "com.android.apex.test.foo.pem",
+        "com.android.apex.test.foo.pk8",
+        "com.android.apex.test.foo.x509.pem",
+    ],
+    tools: [
+        "apexer",
+        "debugfs_static",
+        "shared_libs_repack",
+        "signapk",
+    ],
+    cmd: "$(location shared_libs_repack) " +
+         " --mode strip" +
+         " --key $(location com.android.apex.test.foo.pem)" +
+         " --input $(location :com.android.apex.test.foo)" +
+         " --output $(genDir)/com.android.apex.test.foo_stripped.apex" +
+         " --pk8key $(location com.android.apex.test.foo.pk8)" +
+         " --pubkey $(location com.android.apex.test.foo.avbpubkey)" +
+         " --x509key $(location com.android.apex.test.foo.x509.pem)" +
+         " --tmpdir $(genDir)",
+}

@@ -23,9 +23,44 @@ android_app_certificate {
 }
 
 apex {
-    name: "com.android.apex.test.sharedlibs",
+    name: "com.android.apex.test.sharedlibs_stub",
     manifest: "manifest.json",
     file_contexts: ":apex.test-file_contexts",
     key: "com.android.apex.test.sharedlibs.key",
     installable: false,
+    // We want to force libc++.so to be available in this stub APEX, so put an empty binary.
+    binaries: [ "noop" ],
+}
+
+cc_binary {
+    name: "noop",
+    srcs: ["noop.cc"],
+    apex_available: [ "com.android.apex.test.sharedlibs_stub" ],
+}
+
+genrule {
+    name: "com.android.apex.test.sharedlibs_generated",
+    out: ["com.android.apex.test.sharedlibs_generated.apex"],
+    srcs: [
+        ":com.android.apex.test.sharedlibs_stub",
+        "com.android.apex.test.sharedlibs.avbpubkey",
+        "com.android.apex.test.sharedlibs.pem",
+        "com.android.apex.test.sharedlibs.pk8",
+        "com.android.apex.test.sharedlibs.x509.pem",
+    ],
+    tools: [
+        "apexer",
+        "debugfs_static",
+        "shared_libs_repack",
+        "signapk",
+    ],
+    cmd: "$(location shared_libs_repack) " +
+         " --mode sharedlibs" +
+         " --key $(location com.android.apex.test.sharedlibs.pem)" +
+         " --input $(location :com.android.apex.test.sharedlibs_stub)" +
+         " --output $(genDir)/com.android.apex.test.sharedlibs_generated.apex" +
+         " --pk8key $(location com.android.apex.test.sharedlibs.pk8)" +
+         " --pubkey $(location com.android.apex.test.sharedlibs.avbpubkey)" +
+         " --x509key $(location com.android.apex.test.sharedlibs.x509.pem)" +
+         " --tmpdir $(genDir)",
 }
