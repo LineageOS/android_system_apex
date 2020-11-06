@@ -34,6 +34,9 @@ apex {
 cc_binary {
     name: "bar_test",
     srcs: ["bar_test.cc"],
+    shared_libs: [
+      "libsharedlibtest",
+    ],
     apex_available: [ "com.android.apex.test.bar" ],
 }
 

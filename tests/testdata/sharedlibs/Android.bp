@@ -12,26 +12,135 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-python_binary_host {
-    name: "shared_libs_repack",
-    srcs: [
-        "shared_libs_repack.py",
-    ],
-    version: {
-        py2: {
-            enabled: false,
-        },
-        py3: {
-            enabled: true,
-            embedded_launcher: true,
-        },
-    },
-    libs: [
-        "apex_build_info_proto",
-        "apex_manifest_proto",
-    ],
-    required: [
-        "apexer",
-        "signapk",
-    ],
+// for apex in bar bar_stripped foo foo_stripped sharedlibs_generated; do
+//   for apexversion in v1 v2; do
+//     for libversion in libvX libvY; do
+// cat << EOF
+// prebuilt_apex {
+//   name: "com.android.apex.test.${apex}_${apexversion}_${libversion}_prebuilt",
+//   src: "com.android.apex.test.${apex}.${apexversion}.${libversion}.apex",
+//   filename: "com.android.apex.test.${apex}.${apexversion}.${libversion}.apex",
+// }
+//
+// EOF
+// done; done; done
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_v1_libvX_prebuilt",
+  src: "com.android.apex.test.bar.v1.libvX.apex",
+  filename: "com.android.apex.test.bar.v1.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_v1_libvY_prebuilt",
+  src: "com.android.apex.test.bar.v1.libvY.apex",
+  filename: "com.android.apex.test.bar.v1.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_v2_libvX_prebuilt",
+  src: "com.android.apex.test.bar.v2.libvX.apex",
+  filename: "com.android.apex.test.bar.v2.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_v2_libvY_prebuilt",
+  src: "com.android.apex.test.bar.v2.libvY.apex",
+  filename: "com.android.apex.test.bar.v2.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_stripped_v1_libvX_prebuilt",
+  src: "com.android.apex.test.bar_stripped.v1.libvX.apex",
+  filename: "com.android.apex.test.bar_stripped.v1.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_stripped_v1_libvY_prebuilt",
+  src: "com.android.apex.test.bar_stripped.v1.libvY.apex",
+  filename: "com.android.apex.test.bar_stripped.v1.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_stripped_v2_libvX_prebuilt",
+  src: "com.android.apex.test.bar_stripped.v2.libvX.apex",
+  filename: "com.android.apex.test.bar_stripped.v2.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.bar_stripped_v2_libvY_prebuilt",
+  src: "com.android.apex.test.bar_stripped.v2.libvY.apex",
+  filename: "com.android.apex.test.bar_stripped.v2.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_v1_libvX_prebuilt",
+  src: "com.android.apex.test.foo.v1.libvX.apex",
+  filename: "com.android.apex.test.foo.v1.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_v1_libvY_prebuilt",
+  src: "com.android.apex.test.foo.v1.libvY.apex",
+  filename: "com.android.apex.test.foo.v1.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_v2_libvX_prebuilt",
+  src: "com.android.apex.test.foo.v2.libvX.apex",
+  filename: "com.android.apex.test.foo.v2.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_v2_libvY_prebuilt",
+  src: "com.android.apex.test.foo.v2.libvY.apex",
+  filename: "com.android.apex.test.foo.v2.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_stripped_v1_libvX_prebuilt",
+  src: "com.android.apex.test.foo_stripped.v1.libvX.apex",
+  filename: "com.android.apex.test.foo_stripped.v1.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_stripped_v1_libvY_prebuilt",
+  src: "com.android.apex.test.foo_stripped.v1.libvY.apex",
+  filename: "com.android.apex.test.foo_stripped.v1.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_stripped_v2_libvX_prebuilt",
+  src: "com.android.apex.test.foo_stripped.v2.libvX.apex",
+  filename: "com.android.apex.test.foo_stripped.v2.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.foo_stripped_v2_libvY_prebuilt",
+  src: "com.android.apex.test.foo_stripped.v2.libvY.apex",
+  filename: "com.android.apex.test.foo_stripped.v2.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.sharedlibs_generated_v1_libvX_prebuilt",
+  src: "com.android.apex.test.sharedlibs_generated.v1.libvX.apex",
+  filename: "com.android.apex.test.sharedlibs_generated.v1.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.sharedlibs_generated_v1_libvY_prebuilt",
+  src: "com.android.apex.test.sharedlibs_generated.v1.libvY.apex",
+  filename: "com.android.apex.test.sharedlibs_generated.v1.libvY.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.sharedlibs_generated_v2_libvX_prebuilt",
+  src: "com.android.apex.test.sharedlibs_generated.v2.libvX.apex",
+  filename: "com.android.apex.test.sharedlibs_generated.v2.libvX.apex",
+}
+
+prebuilt_apex {
+  name: "com.android.apex.test.sharedlibs_generated_v2_libvY_prebuilt",
+  src: "com.android.apex.test.sharedlibs_generated.v2.libvY.apex",
+  filename: "com.android.apex.test.sharedlibs_generated.v2.libvY.apex",
 }
