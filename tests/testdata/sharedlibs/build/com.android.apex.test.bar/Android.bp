@@ -43,6 +43,9 @@ cc_binary {
 genrule {
     name: "com.android.apex.test.bar_stripped",
     out: ["com.android.apex.test.bar_stripped.apex"],
+    dist: {
+        targets: ["sharedlibs_test_genfile"],
+    },
     srcs: [
         ":com.android.apex.test.bar",
         "com.android.apex.test.bar.avbpubkey",

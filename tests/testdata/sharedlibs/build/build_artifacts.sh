@@ -1,4 +1,18 @@
-#!/bin/bash -ex
+#!/bin/bash -e
+
+# List of files required in output. Every other file generated will be skipped.
+OUTFILES=(
+  com.android.apex.test.bar_stripped.v1.libvX.apex
+  com.android.apex.test.bar_stripped.v2.libvY.apex
+  com.android.apex.test.bar.v1.libvX.apex
+  com.android.apex.test.bar.v2.libvY.apex
+  com.android.apex.test.foo_stripped.v1.libvX.apex
+  com.android.apex.test.foo_stripped.v2.libvY.apex
+  com.android.apex.test.foo.v1.libvX.apex
+  com.android.apex.test.foo.v2.libvY.apex
+  com.android.apex.test.sharedlibs_generated.v1.libvX.apex
+  com.android.apex.test.sharedlibs_generated.v2.libvY.apex
+)
 
 # "apex" type build targets to build.
 APEX_TARGETS=(
@@ -24,10 +38,8 @@ TMPDIR=$(source build/envsetup.sh > /dev/null; TARGET_PRODUCT= get_build_var TMP
 
 manifestdirs=()
 
-genrules=()
 for t in "${GENRULE_TARGETS[@]}"; do
     IFS=: read -a ar <<< "${t}"
-    genrules+=( ${ar[1]} )
     manifestdirs+=( ${ar[0]})
 done
 
@@ -41,45 +53,125 @@ done
 manifestdirs=($(printf "%s\n" "${manifestdirs[@]}" | sort -u))
 
 generated_artifacts=()
-for apexversion in 1 2; do
-    apexfingerprint="VERSION_${apexversion}"
-    sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"${apexfingerprint}\"/g" \
-    system/apex/tests/testdata/sharedlibs/build/com.android.apex.test.bar/bar_test.cc \
-    system/apex/tests/testdata/sharedlibs/build/com.android.apex.test.foo/foo_test.cc
 
-    for d in "${manifestdirs[@]}"; do
-        sed -i "s/  \"version\": .*/  \"version\": ${apexversion}/g" \
-        ${d}/manifest.json
-    done
-    for libversion in X Y; do
-        libfingerprint="VERSION_${libversion}"
-        sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"${libfingerprint}\"/g" \
-        system/apex/tests/testdata/sharedlibs/build/sharedlibstest.cpp
+archs=(
+  arm
+  arm64
+  x86
+  x86_64
+)
 
-        build/soong/soong_ui.bash \
-            --make-mode \
-            TARGET_PRODUCT=aosp_arm64 \
-            "${apexrules[@]}" \
-            "${genrules[@]}"
+apexversions=(
+  1
+  2
+)
 
-        for t in "${APEX_TARGETS[@]}"; do
-            IFS=: read -a ar <<< "${t}"
-            outfile=${ar[1]}.v${apexversion}.libv${libversion}.apex
-            cp \
-            "${OUT_DIR}"/target/product/generic_arm64/obj/ETC/"${ar[1]}"_intermediates/${ar[1]}.apex \
-            system/apex/tests/testdata/sharedlibs/${outfile}
-            generated_artifacts+=(system/apex/tests/testdata/sharedlibs/${outfile})
+libversions=(
+  X
+  Y
+)
+
+for arch in "${archs[@]}"; do
+    for apexversion in "${apexversions[@]}"; do
+        apexfingerprint="VERSION_${apexversion}"
+        sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"${apexfingerprint}\"/g" \
+        system/apex/tests/testdata/sharedlibs/build/com.android.apex.test.bar/bar_test.cc \
+        system/apex/tests/testdata/sharedlibs/build/com.android.apex.test.foo/foo_test.cc
+
+        for d in "${manifestdirs[@]}"; do
+            sed -i "s/  \"version\": .*/  \"version\": ${apexversion}/g" \
+            ${d}/manifest.json
         done
+        for libversion in "${libversions[@]}"; do
+            # Check if we need to build this combination of versions.
+            found=n
+            for t in "${APEX_TARGETS[@]}" "${GENRULE_TARGETS[@]}"; do
+                IFS=: read -a ar <<< "${t}"
+                outfile=${ar[1]}.v${apexversion}.libv${libversion}.apex
+                if printf '%s\n' "${OUTFILES[@]}" | grep -q -F "${outfile}"; then
+                    found=y
+                    break
+                fi
+            done
+            if [ "${found}" != "y" ]; then
+                # Skipping this combination.
+                continue
+            fi
 
-        for t in "${GENRULE_TARGETS[@]}"; do
-            IFS=: read -a ar <<< "${t}"
-            outfile=${ar[1]}.v${apexversion}.libv${libversion}.apex
-            cp "${OUT_DIR}"/soong/.intermediates/"${ar[0]}"/"${ar[1]}"/gen/"${ar[1]}".apex \
-            system/apex/tests/testdata/sharedlibs/${outfile}
-            generated_artifacts+=(system/apex/tests/testdata/sharedlibs/${outfile})
+            echo "Building combination arch: ${arch}, apexversion: ${apexversion}, libversion: ${libversion}"
+            libfingerprint="VERSION_${libversion}"
+            sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"${libfingerprint}\"/g" \
+            system/apex/tests/testdata/sharedlibs/build/sharedlibstest.cpp
+
+            TARGET_BUILD_APPS="${apexrules[@]}"
+            build/soong/soong_ui.bash \
+                --make-mode \
+                TARGET_PRODUCT=aosp_${arch} \
+                dist apps_only sharedlibs_test_genfile
+
+            for t in "${APEX_TARGETS[@]}" "${GENRULE_TARGETS[@]}"; do
+                IFS=: read -a ar <<< "${t}"
+                outfile=${ar[1]}.v${apexversion}.libv${libversion}.apex
+                if printf '%s\n' "${OUTFILES[@]}" | grep -q -P "^${outfile}\$"; then
+                    cp -v \
+                    "${DIST_DIR}"/"${ar[1]}".apex \
+                    system/apex/tests/testdata/sharedlibs/prebuilts/${arch}/${outfile}
+                    generated_artifacts+=(system/apex/tests/testdata/sharedlibs/prebuilts/${arch}/${outfile})
+                fi
+            done
         done
     done
 done
+
+# Generate the Android.bp file for the prebuilts.
+tmpfile=$(mktemp)
+
+cat > "${tmpfile}" << EOF
+// Copyright (C) 2020 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// This file is auto-generated by
+// ./system/apex/tests/testdata/sharedlibs/build/build_artifacts.sh
+// Do NOT edit manually.
+EOF
+
+for outfile in "${OUTFILES[@]}"; do
+    rulename=$(echo ${outfile} | sed 's/\.apex$//g')
+
+    cat >> "${tmpfile}" << EOF
+
+prebuilt_apex {
+  name: "${rulename}_prebuilt",
+  arch: {
+EOF
+
+    for arch in "${archs[@]}"; do
+        cat >> "${tmpfile}" << EOF
+    ${arch}: {
+      src: "${arch}/${outfile}",
+    },
+EOF
+    done
+
+    cat >> "${tmpfile}" << EOF
+  },
+  filename: "${outfile}",
+}
+EOF
+done
+
+mv "${tmpfile}" system/apex/tests/testdata/sharedlibs/prebuilts/Android.bp
 
 # Restore the default version string to avoid bogus diffs.
 sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"VERSION_XXX\"/g" \

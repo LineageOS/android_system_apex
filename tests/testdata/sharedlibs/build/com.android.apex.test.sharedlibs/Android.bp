@@ -44,6 +44,9 @@ cc_binary {
 genrule {
     name: "com.android.apex.test.sharedlibs_generated",
     out: ["com.android.apex.test.sharedlibs_generated.apex"],
+    dist: {
+        targets: ["sharedlibs_test_genfile"],
+    },
     srcs: [
         ":com.android.apex.test.sharedlibs_stub",
         "com.android.apex.test.sharedlibs.avbpubkey",
