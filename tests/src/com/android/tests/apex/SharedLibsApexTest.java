@@ -132,6 +132,7 @@ public class SharedLibsApexTest extends BaseHostJUnit4Test {
         }
         mPreparer.reboot();
 
+        getDevice().disableAdbRoot();
         String runAsResult = getDevice().executeShellCommand(
                 "/apex/com.android.apex.test.foo/bin/foo_test");
         assertThat(runAsResult).isEqualTo("FOO_VERSION_1 SHARED_LIB_VERSION_X");
@@ -177,6 +178,7 @@ public class SharedLibsApexTest extends BaseHostJUnit4Test {
         }
         mPreparer.reboot();
 
+        getDevice().disableAdbRoot();
         String runAsResult = getDevice().executeShellCommand(
                 "/apex/com.android.apex.test.foo/bin/foo_test");
         assertThat(runAsResult).isEqualTo("FOO_VERSION_1 SHARED_LIB_VERSION_X");
