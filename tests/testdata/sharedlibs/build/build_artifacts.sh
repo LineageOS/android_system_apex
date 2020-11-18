@@ -167,6 +167,7 @@ EOF
     cat >> "${tmpfile}" << EOF
   },
   filename: "${outfile}",
+  installable: false,
 }
 EOF
 done
