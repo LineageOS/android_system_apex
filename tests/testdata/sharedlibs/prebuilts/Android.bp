@@ -97,6 +97,26 @@ prebuilt_apex {
 }
 
 prebuilt_apex {
+  name: "com.android.apex.test.baz_stripped.v1.libvX_prebuilt",
+  arch: {
+    arm: {
+      src: "arm/com.android.apex.test.baz_stripped.v1.libvX.apex",
+    },
+    arm64: {
+      src: "arm64/com.android.apex.test.baz_stripped.v1.libvX.apex",
+    },
+    x86: {
+      src: "x86/com.android.apex.test.baz_stripped.v1.libvX.apex",
+    },
+    x86_64: {
+      src: "x86_64/com.android.apex.test.baz_stripped.v1.libvX.apex",
+    },
+  },
+  filename: "com.android.apex.test.baz_stripped.v1.libvX.apex",
+  installable: false,
+}
+
+prebuilt_apex {
   name: "com.android.apex.test.foo_stripped.v1.libvX_prebuilt",
   arch: {
     arm: {

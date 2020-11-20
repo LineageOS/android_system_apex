@@ -279,8 +279,7 @@ def main(argv):
         basename = os.path.basename(lib_path_hash[0])
         pb.sharedApexLibs.append(basename + ':' + lib_path_hash[1])
         # Replace existing library with symlink
-        symlink_dst = os.path.join('/', 'apex',
-                                   'com.android.apex.test.sharedlibs',
+        symlink_dst = os.path.join('/', 'apex', 'sharedlibs',
                                    libpath, basename, lib_path_hash[1],
                                    basename)
         os.remove(lib_path_hash[0])
@@ -297,6 +296,15 @@ def main(argv):
       f.write(pb.SerializeToString())
 
   if args.mode == 'sharedlibs':
+    # Sharedlibs mode. Mark in the APEX manifest that this package contains
+    # shared libraries.
+    pb = apex_manifest_pb2.ApexManifest()
+    with open(container_files['apex_manifest.pb'], 'rb') as f:
+      pb.ParseFromString(f.read())
+      pb.provideSharedApexLibs = True
+    with open(container_files['apex_manifest.pb'], 'wb') as f:
+      f.write(pb.SerializeToString())
+
     pb = apex_build_info_pb2.ApexBuildInfo()
     with open(container_files['apex_build_info.pb'], 'rb') as f:
       pb.ParseFromString(f.read())
