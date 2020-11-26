@@ -270,14 +270,14 @@ def main(argv):
 
   if args.mode == 'strip':
     # Stripping mode. Add a reference to the version of libc++.so to the
-    # sharedApexLibs entry in the manifest, and remove lib64/libc++.so from
-    # the payload.
+    # requireSharedApexLibs entry in the manifest, and remove lib64/libc++.so
+    # from the payload.
     pb = apex_manifest_pb2.ApexManifest()
     with open(container_files['apex_manifest.pb'], 'rb') as f:
       pb.ParseFromString(f.read())
       for lib_path_hash in lib_paths_hashes:
         basename = os.path.basename(lib_path_hash[0])
-        pb.sharedApexLibs.append(basename + ':' + lib_path_hash[1])
+        pb.requireSharedApexLibs.append(basename + ':' + lib_path_hash[1])
         # Replace existing library with symlink
         symlink_dst = os.path.join('/', 'apex', 'sharedlibs',
                                    libpath, basename, lib_path_hash[1],
@@ -291,7 +291,7 @@ def main(argv):
       # requireNativeLibs: "libc.so"
       # requireNativeLibs: "libdl.so"
       # requireNativeLibs: "libm.so"
-      # sharedApexLibs : "libc++.so:83d8f50..."
+      # requireSharedApexLibs : "libc++.so:83d8f50..."
     with open(container_files['apex_manifest.pb'], 'wb') as f:
       f.write(pb.SerializeToString())
 
