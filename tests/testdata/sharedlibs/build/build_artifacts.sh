@@ -40,15 +40,8 @@ TMPDIR=$(source build/envsetup.sh > /dev/null; TARGET_PRODUCT= get_build_var TMP
 
 manifestdirs=()
 
-for t in "${GENRULE_TARGETS[@]}"; do
+for t in "${APEX_TARGETS[@]}" "${GENRULE_TARGETS[@]}"; do
     IFS=: read -a ar <<< "${t}"
-    manifestdirs+=( ${ar[0]})
-done
-
-apexrules=()
-for t in "${APEX_TARGETS[@]}"; do
-    IFS=: read -a ar <<< "${t}"
-    apexrules+=( ${ar[1]} )
     manifestdirs+=( ${ar[0]})
 done
 
@@ -106,11 +99,10 @@ for arch in "${archs[@]}"; do
             sed -i "s/#define FINGERPRINT .*/#define FINGERPRINT \"${libfingerprint}\"/g" \
             system/apex/tests/testdata/sharedlibs/build/sharedlibstest.cpp
 
-            TARGET_BUILD_APPS="${apexrules[@]}"
             build/soong/soong_ui.bash \
                 --make-mode \
                 TARGET_PRODUCT=aosp_${arch} \
-                dist apps_only sharedlibs_test_genfile
+                dist sharedlibs_test
 
             for t in "${APEX_TARGETS[@]}" "${GENRULE_TARGETS[@]}"; do
                 IFS=: read -a ar <<< "${t}"
