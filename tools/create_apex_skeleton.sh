@@ -65,16 +65,6 @@ rm csr.conf
 openssl pkcs8 -topk8 -inform PEM -outform DER -in key.pem -out ${APEX_NAME}.pk8 -nocrypt
 rm key.pem
 
-
-cat > AndroidManifest.xml << EOF
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="${APEX_NAME}">
-  <!-- APEX does not have classes.dex -->
-  <application android:hasCode="false" />
-</manifest>
-EOF
-
 cat > manifest.json << EOF
 {
   "name": "${APEX_NAME}",
