@@ -1069,8 +1069,28 @@ Result<void> activateSharedLibsPackage(const std::string& mountPoint) {
 
         auto hash_dir = PathExists(library_symlink_hash);
         if (hash_dir.ok() && *hash_dir) {
-          // TODO(b/161542925) : Handle symlink from different sharedlibs APEX
-          // with same hash value
+          // Compare file size for two library files with same name and hash
+          // value
+          auto existing_file_path =
+              library_symlink_hash + "/" + library_name.string();
+          auto existing_file_size = GetFileSize(existing_file_path);
+          if (!existing_file_size.ok()) {
+            return existing_file_size.error();
+          }
+
+          auto new_file_path =
+              lib_items.path().string() + "/" + library_name.string();
+          auto new_file_size = GetFileSize(new_file_path);
+          if (!new_file_size.ok()) {
+            return new_file_size.error();
+          }
+
+          if (*existing_file_size != *new_file_size) {
+            return Error() << "There are two libraries with same hash and "
+                              "different file size : "
+                           << existing_file_path << " and " << new_file_path;
+          }
+
           inner_iter = inner_iter.increment(ec);
           if (ec) {
             return Error() << "Failed to scan " << lib_entry.path().string()
