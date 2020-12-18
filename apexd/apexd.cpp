@@ -2234,9 +2234,17 @@ void onStart() {
                  std::back_inserter(data_apex), filter_fn);
   }
 
+  if (data_apex.size() > 0) {
+    Result<void> preAllocate = loop::preAllocateLoopDevices(data_apex.size());
+    if (!preAllocate.ok()) {
+      LOG(ERROR) << "Failed to pre-allocate loop devices : "
+                 << preAllocate.error();
+    }
+  }
+
   if (auto ret = ActivateApexPackages(data_apex); !ret.ok()) {
     LOG(ERROR) << "Failed to activate packages from "
-               << kActiveApexPackagesDataDir << " : " << status.error();
+               << kActiveApexPackagesDataDir << " : " << ret.error();
     Result<void> revert_status = revertActiveSessionsAndReboot("");
     if (!revert_status.ok()) {
       LOG(ERROR) << "Failed to revert : " << revert_status.error()

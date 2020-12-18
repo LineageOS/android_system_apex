@@ -32,6 +32,7 @@
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
@@ -42,6 +43,7 @@
 using android::base::Basename;
 using android::base::Error;
 using android::base::GetBoolProperty;
+using android::base::ParseUint;
 using android::base::Result;
 using android::base::StartsWith;
 using android::base::StringPrintf;
@@ -114,13 +116,30 @@ Result<void> preAllocateLoopDevices(size_t num) {
     return ErrnoError() << "Failed to open loop-control";
   }
 
+  bool found = false;
+  size_t start_id = 0;
+  constexpr const char* loopPrefix = "loop";
+  WalkDir("/dev/block", [&](const std::filesystem::directory_entry& entry) {
+    std::string devname = entry.path().filename().string();
+    if (StartsWith(devname, loopPrefix)) {
+      size_t id;
+      auto parse_ok = ParseUint(
+          devname.substr(std::char_traits<char>::length(loopPrefix)), &id);
+      if (parse_ok && id > start_id) {
+        start_id = id;
+        found = true;
+      }
+    }
+  });
+  if (found) ++start_id;
+
   // Assumption: loop device ID [0..num) is valid.
   // This is because pre-allocation happens during bootstrap.
   // Anyway Kernel pre-allocated loop devices
   // as many as CONFIG_BLK_DEV_LOOP_MIN_COUNT,
   // Within the amount of kernel-pre-allocation,
   // LOOP_CTL_ADD will fail with EEXIST
-  for (size_t id = 0ul; id < num; ++id) {
+  for (size_t id = start_id; id < num + start_id; ++id) {
     int ret = ioctl(ctl_fd.get(), LOOP_CTL_ADD, id);
     if (ret < 0 && errno != EEXIST) {
       return ErrnoError() << "Failed LOOP_CTL_ADD";
