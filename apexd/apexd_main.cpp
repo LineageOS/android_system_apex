@@ -32,7 +32,7 @@
 
 namespace {
 android::apex::ApexdLifecycle& lifecycle =
-    android::apex::ApexdLifecycle::getInstance();
+    android::apex::ApexdLifecycle::GetInstance();
 
 int HandleSubcommand(char** argv) {
   if (strcmp("--pre-install", argv[1]) == 0) {
@@ -139,7 +139,7 @@ int main(int /*argc*/, char** argv) {
   }
   android::apex::initialize(vold_service);
 
-  bool booting = lifecycle.isBooting();
+  bool booting = lifecycle.IsBooting();
   if (booting) {
     if (auto res = android::apex::migrateSessionsDirIfNeeded(); !res.ok()) {
       LOG(ERROR) << "Failed to migrate sessions to /metadata partition : "
@@ -158,7 +158,7 @@ int main(int /*argc*/, char** argv) {
     // the "--snapshotde" subcommand is received and snapshot/restore is
     // complete.
     android::apex::onAllPackagesActivated(/*is_bootstrap=*/false);
-    lifecycle.waitForBootStatus(android::apex::revertActiveSessionsAndReboot);
+    lifecycle.WaitForBootStatus(android::apex::revertActiveSessionsAndReboot);
   }
 
   android::apex::binder::AllowServiceShutdown();

@@ -86,12 +86,12 @@ Result<ApexSession> ApexSession::CreateSession(int session_id) {
 
 Result<ApexSession> ApexSession::GetSessionFromFile(const std::string& path) {
   SessionState state;
-  std::fstream stateFile(path, std::ios::in | std::ios::binary);
-  if (!stateFile) {
+  std::fstream state_file(path, std::ios::in | std::ios::binary);
+  if (!state_file) {
     return Error() << "Failed to open " << path;
   }
 
-  if (!state.ParseFromIstream(&stateFile)) {
+  if (!state.ParseFromIstream(&state_file)) {
     return Error() << "Failed to parse " << path;
   }
 
@@ -108,17 +108,17 @@ Result<ApexSession> ApexSession::GetSession(int session_id) {
 std::vector<ApexSession> ApexSession::GetSessions() {
   std::vector<ApexSession> sessions;
 
-  Result<std::vector<std::string>> sessionPaths = ReadDir(
+  Result<std::vector<std::string>> session_paths = ReadDir(
       GetSessionsDir(), [](const std::filesystem::directory_entry& entry) {
         std::error_code ec;
         return entry.is_directory(ec);
       });
 
-  if (!sessionPaths.ok()) {
+  if (!session_paths.ok()) {
     return sessions;
   }
 
-  for (const std::string& sessionDirPath : *sessionPaths) {
+  for (const std::string& sessionDirPath : *session_paths) {
     // Try to read session state
     auto session = GetSessionFromFile(sessionDirPath + "/" + kStateFileName);
     if (!session.ok()) {
@@ -144,13 +144,13 @@ std::vector<ApexSession> ApexSession::GetSessionsInState(
 
 std::vector<ApexSession> ApexSession::GetActiveSessions() {
   auto sessions = GetSessions();
-  std::vector<ApexSession> activeSessions;
+  std::vector<ApexSession> active_sessions;
   for (const ApexSession& session : sessions) {
     if (!session.IsFinalized() && session.GetState() != SessionState::UNKNOWN) {
-      activeSessions.push_back(session);
+      active_sessions.push_back(session);
     }
   }
-  return activeSessions;
+  return active_sessions;
 }
 
 SessionState::State ApexSession::GetState() const { return state_.state(); }

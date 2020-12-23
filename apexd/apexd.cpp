@@ -144,7 +144,7 @@ bool isBootstrapApex(const ApexFile& apex) {
 
 // Pre-allocate loop devices so that we don't have to wait for them
 // later when actually activating APEXes.
-Result<void> preAllocateLoopDevices() {
+Result<void> PreAllocateLoopDevices() {
   auto scan = FindApexes(kApexPackageBuiltinDirs);
   if (!scan.ok()) {
     return scan.error();
@@ -170,7 +170,7 @@ Result<void> preAllocateLoopDevices() {
   if (size == 0) {
     return {};
   }
-  return loop::preAllocateLoopDevices(size);
+  return loop::PreAllocateLoopDevices(size);
 }
 
 std::unique_ptr<DmTable> createVerityTable(const ApexVerityData& verity_data,
@@ -394,7 +394,7 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
 
   loop::LoopbackDeviceUniqueFd loopbackDevice;
   for (size_t attempts = 1;; ++attempts) {
-    Result<loop::LoopbackDeviceUniqueFd> ret = loop::createLoopDevice(
+    Result<loop::LoopbackDeviceUniqueFd> ret = loop::CreateLoopDevice(
         full_path, apex.GetImageOffset(), apex.GetImageSize());
     if (ret.ok()) {
       loopbackDevice = std::move(*ret);
@@ -439,7 +439,7 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
           !st.ok()) {
         return st.error();
       }
-      auto create_loop_status = loop::createLoopDevice(hashtree_file, 0, 0);
+      auto create_loop_status = loop::CreateLoopDevice(hashtree_file, 0, 0);
       if (!create_loop_status.ok()) {
         return create_loop_status.error();
       }
@@ -460,10 +460,10 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
     apex_data.device_name = device_name;
     blockDevice = verityDev.GetDevPath();
 
-    Result<void> readAheadStatus =
-        loop::configureReadAhead(verityDev.GetDevPath());
-    if (!readAheadStatus.ok()) {
-      return readAheadStatus.error();
+    Result<void> read_ahead_status =
+        loop::ConfigureReadAhead(verityDev.GetDevPath());
+    if (!read_ahead_status.ok()) {
+      return read_ahead_status.error();
     }
   }
   // TODO(b/158467418): consider moving this inside RunVerifyFnInsideTempMount.
@@ -1640,7 +1640,7 @@ Result<void> destroyCeSnapshotsNotSpecified(
   auto snapshot_root =
       StringPrintf("%s/%d/%s", kCeDataDir, user_id, kApexSnapshotSubDir);
   auto snapshot_dirs = GetSubdirs(snapshot_root);
-  if (!snapshot_dirs) {
+  if (!snapshot_dirs.ok()) {
     return Error() << "Error reading snapshot dirs " << snapshot_dirs.error();
   }
 
@@ -1652,7 +1652,7 @@ Result<void> destroyCeSnapshotsNotSpecified(
         std::find(retain_rollback_ids.begin(), retain_rollback_ids.end(),
                   snapshot_id) == retain_rollback_ids.end()) {
       Result<void> result = DeleteDir(snapshot_dir);
-      if (!result) {
+      if (!result.ok()) {
         return Error() << "Destroy CE snapshot failed for " << snapshot_dir
                        << " : " << result.error();
       }
@@ -1718,7 +1718,7 @@ void deleteDePreRestoreSnapshots(const ApexSession& session) {
 }
 
 void onBootCompleted() {
-  ApexdLifecycle::getInstance().markBootCompleted();
+  ApexdLifecycle::GetInstance().MarkBootCompleted();
   bootCompletedCleanup();
 }
 
@@ -2088,10 +2088,10 @@ Result<void> createSharedLibsApexDir() {
 }
 
 int onBootstrap() {
-  Result<void> preAllocate = preAllocateLoopDevices();
-  if (!preAllocate.ok()) {
+  Result<void> pre_allocate = PreAllocateLoopDevices();
+  if (!pre_allocate.ok()) {
     LOG(ERROR) << "Failed to pre-allocate loop devices : "
-               << preAllocate.error();
+               << pre_allocate.error();
   }
 
   ApexPreinstalledData& instance = ApexPreinstalledData::GetInstance();
@@ -2235,10 +2235,10 @@ void onStart() {
   }
 
   if (data_apex.size() > 0) {
-    Result<void> preAllocate = loop::preAllocateLoopDevices(data_apex.size());
-    if (!preAllocate.ok()) {
+    Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex.size());
+    if (!pre_allocate.ok()) {
       LOG(ERROR) << "Failed to pre-allocate loop devices : "
-                 << preAllocate.error();
+                 << pre_allocate.error();
     }
   }
 
@@ -2534,7 +2534,7 @@ Result<void> remountPackages() {
   for (const std::string& apex : apexes) {
     // Since this is only used during development workflow, we are trying to
     // remount as many apexes as possible instead of failing fast.
-    if (auto ret = remountApexFile(apex); !ret) {
+    if (auto ret = remountApexFile(apex); !ret.ok()) {
       LOG(WARNING) << "Failed to remount " << apex << " : " << ret.error();
       failed.emplace_back(apex);
     }

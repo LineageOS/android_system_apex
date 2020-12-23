@@ -579,7 +579,7 @@ BinderStatus ApexService::recollectPreinstalledData(
     return root;
   }
   ApexPreinstalledData& instance = ApexPreinstalledData::GetInstance();
-  if (auto res = instance.Initialize(paths); !res) {
+  if (auto res = instance.Initialize(paths); !res.ok()) {
     return BinderStatus::fromExceptionCode(
         BinderStatus::EX_SERVICE_SPECIFIC,
         String8(res.error().message().c_str()));
