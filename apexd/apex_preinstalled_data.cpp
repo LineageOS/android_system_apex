@@ -60,10 +60,12 @@ Result<void> ApexPreinstalledData::ScanDir(const std::string& dir) {
     auto it = data_.find(name);
     if (it == data_.end()) {
       data_[name] = apex_data;
+    } else if (it->second.path != apex_data.path) {
+      LOG(FATAL) << "Found two apex packages " << it->second.path << " and "
+                 << apex_data.path << " with the same module name " << name;
     } else if (it->second.public_key != apex_data.public_key) {
-      return Error() << "Key for package " << apex_data.path << " ( " << name
-                     << ") does not match with previously scanned key from "
-                     << it->second.path;
+      LOG(FATAL) << "Public key of apex package " << it->second.path << " ("
+                 << name << ") has unexpectedly changed";
     }
   }
   return {};

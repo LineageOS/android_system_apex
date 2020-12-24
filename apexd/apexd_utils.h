@@ -127,7 +127,7 @@ inline bool IsEmptyDirectory(const std::string& path) {
   return res.ok() && res->empty();
 }
 
-inline Result<void> createDirIfNeeded(const std::string& path, mode_t mode) {
+inline Result<void> CreateDirIfNeeded(const std::string& path, mode_t mode) {
   struct stat stat_data;
 
   if (stat(path.c_str(), &stat_data) != 0) {

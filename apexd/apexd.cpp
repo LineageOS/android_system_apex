@@ -798,7 +798,7 @@ Result<void> BackupActivePackages() {
   LOG(DEBUG) << "Initializing  backup of " << kActiveApexPackagesDataDir;
 
   // Previous restore might've delete backups folder.
-  auto create_status = createDirIfNeeded(kApexBackupDir, 0700);
+  auto create_status = CreateDirIfNeeded(kApexBackupDir, 0700);
   if (!create_status.ok()) {
     return Error() << "Backup failed : " << create_status.error();
   }
@@ -1488,7 +1488,7 @@ Result<void> snapshotDataDirectory(const std::string& base_dir,
   auto rollback_path =
       StringPrintf("%s/%s/%d%s", base_dir.c_str(), kApexSnapshotSubDir,
                    rollback_id, pre_restore ? kPreRestoreSuffix : "");
-  const Result<void> result = createDirIfNeeded(rollback_path, 0700);
+  const Result<void> result = CreateDirIfNeeded(rollback_path, 0700);
   if (!result.ok()) {
     return Error() << "Failed to create snapshot directory for rollback "
                    << rollback_id << " : " << result.error();
@@ -1881,7 +1881,7 @@ Result<void> stagePackages(const std::vector<std::string>& tmpPaths) {
 
   // Make sure that kActiveApexPackagesDataDir exists.
   auto create_dir_status =
-      createDirIfNeeded(std::string(kActiveApexPackagesDataDir), 0755);
+      CreateDirIfNeeded(std::string(kActiveApexPackagesDataDir), 0755);
   if (!create_dir_status.ok()) {
     return create_dir_status.error();
   }

@@ -76,7 +76,7 @@ Result<ApexSession> ApexSession::CreateSession(int session_id) {
   SessionState state;
   // Create session directory
   std::string session_dir = GetSessionsDir() + "/" + std::to_string(session_id);
-  if (auto status = createDirIfNeeded(session_dir, 0700); !status.ok()) {
+  if (auto status = CreateDirIfNeeded(session_dir, 0700); !status.ok()) {
     return status.error();
   }
   state.set_id(session_id);
