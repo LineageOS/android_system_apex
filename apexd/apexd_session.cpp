@@ -118,9 +118,9 @@ std::vector<ApexSession> ApexSession::GetSessions() {
     return sessions;
   }
 
-  for (const std::string& sessionDirPath : *session_paths) {
+  for (const std::string& session_dir_path : *session_paths) {
     // Try to read session state
-    auto session = GetSessionFromFile(sessionDirPath + "/" + kStateFileName);
+    auto session = GetSessionFromFile(session_dir_path + "/" + kStateFileName);
     if (!session.ok()) {
       LOG(WARNING) << session.error();
       continue;

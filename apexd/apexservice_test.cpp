@@ -2470,7 +2470,7 @@ TEST_F(ApexServiceRevertTest, RevertStoresCrashingNativeProcess) {
   // TODO(ioffe): this is calling into internals of apexd which makes test quite
   //  britle. With some refactoring we should be able to call binder api, or
   //  make this a unit test of apexd.cpp.
-  Result<void> res = ::android::apex::revertActiveSessions(native_process);
+  Result<void> res = ::android::apex::RevertActiveSessions(native_process);
   session = ApexSession::GetSession(1543);
   ASSERT_EQ(session->GetCrashingNativeProcess(), native_process);
 }

@@ -133,11 +133,11 @@ TEST_P(ApexFileTest, GetBundledPublicKey) {
 
   const std::string key_path =
       kTestDataDir + "apexd_testdata/com.android.apex.test_package.avbpubkey";
-  std::string keyContent;
-  ASSERT_TRUE(android::base::ReadFileToString(key_path, &keyContent))
+  std::string key_content;
+  ASSERT_TRUE(android::base::ReadFileToString(key_path, &key_content))
       << "Failed to read " << key_path;
 
-  EXPECT_EQ(keyContent, apex_file->GetBundledPublicKey());
+  EXPECT_EQ(key_content, apex_file->GetBundledPublicKey());
 }
 
 TEST(ApexFileTest, CorrutedApexB146895998) {

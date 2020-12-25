@@ -240,7 +240,7 @@ Result<std::span<const uint8_t>> VerifyVbMetaSignature(const ApexFile& apex,
   return std::span<const uint8_t>(pk, pk_len);
 }
 
-Result<std::unique_ptr<uint8_t[]>> verifyVbMeta(const ApexFile& apex,
+Result<std::unique_ptr<uint8_t[]>> VerifyVbMeta(const ApexFile& apex,
                                                 const unique_fd& fd,
                                                 const AvbFooter& footer,
                                                 const std::string& public_key) {
@@ -332,7 +332,7 @@ Result<ApexVerityData> ApexFile::VerifyApexVerity(
   }
 
   Result<std::unique_ptr<uint8_t[]>> vbmeta_data =
-      verifyVbMeta(*this, fd, **footer, public_key);
+      VerifyVbMeta(*this, fd, **footer, public_key);
   if (!vbmeta_data.ok()) {
     return vbmeta_data.error();
   }

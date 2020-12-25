@@ -52,7 +52,7 @@ struct LoopbackDeviceUniqueFd {
 
   void CloseGood() { device_fd.reset(-1); }
 
-  int get() { return device_fd.get(); }
+  int Get() { return device_fd.get(); }
 };
 
 android::base::Result<void> ConfigureReadAhead(const std::string& device_path);
@@ -60,8 +60,8 @@ android::base::Result<void> ConfigureReadAhead(const std::string& device_path);
 android::base::Result<void> PreAllocateLoopDevices(size_t num);
 
 android::base::Result<LoopbackDeviceUniqueFd> CreateLoopDevice(
-    const std::string& target, const int32_t imageOffset,
-    const size_t imageSize);
+    const std::string& target, const int32_t image_offset,
+    const size_t image_size);
 
 using DestroyLoopFn =
     std::function<void(const std::string&, const std::string&)>;
