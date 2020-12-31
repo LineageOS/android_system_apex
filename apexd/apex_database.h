@@ -89,39 +89,6 @@ class MountedApexDatabase {
     }
   };
 
-  inline void CheckAtMostOneLatest() {
-    for (const auto& apex_set : mounted_apexes_) {
-      size_t count = 0;
-      for (const auto& pair : apex_set.second) {
-        if (pair.second) {
-          count++;
-        }
-      }
-      CHECK_LE(count, 1u) << apex_set.first;
-    }
-  }
-
-  inline void CheckUniqueLoopDm() {
-    std::unordered_set<std::string> loop_devices;
-    std::unordered_set<std::string> dm_devices;
-    for (const auto& apex_set : mounted_apexes_) {
-      for (const auto& pair : apex_set.second) {
-        if (pair.first.loop_name != "") {
-          CHECK(loop_devices.insert(pair.first.loop_name).second)
-              << "Duplicate loop device: " << pair.first.loop_name;
-        }
-        if (pair.first.device_name != "") {
-          CHECK(dm_devices.insert(pair.first.device_name).second)
-              << "Duplicate dm device: " << pair.first.device_name;
-        }
-        if (pair.first.hashtree_loop_name != "") {
-          CHECK(loop_devices.insert(pair.first.hashtree_loop_name).second)
-              << "Duplicate loop device: " << pair.first.hashtree_loop_name;
-        }
-      }
-    }
-  }
-
   template <typename... Args>
   inline void AddMountedApex(const std::string& package, bool latest,
                              Args&&... args) {
@@ -219,6 +186,39 @@ class MountedApexDatabase {
   // TODO(b/158467745): This structure (and functions) need to be guarded by
   //   locks.
   std::map<std::string, std::map<MountedApexData, bool>> mounted_apexes_;
+
+  inline void CheckAtMostOneLatest() {
+    for (const auto& apex_set : mounted_apexes_) {
+      size_t count = 0;
+      for (const auto& pair : apex_set.second) {
+        if (pair.second) {
+          count++;
+        }
+      }
+      CHECK_LE(count, 1u) << apex_set.first;
+    }
+  }
+
+  inline void CheckUniqueLoopDm() {
+    std::unordered_set<std::string> loop_devices;
+    std::unordered_set<std::string> dm_devices;
+    for (const auto& apex_set : mounted_apexes_) {
+      for (const auto& pair : apex_set.second) {
+        if (pair.first.loop_name != "") {
+          CHECK(loop_devices.insert(pair.first.loop_name).second)
+              << "Duplicate loop device: " << pair.first.loop_name;
+        }
+        if (pair.first.device_name != "") {
+          CHECK(dm_devices.insert(pair.first.device_name).second)
+              << "Duplicate dm device: " << pair.first.device_name;
+        }
+        if (pair.first.hashtree_loop_name != "") {
+          CHECK(loop_devices.insert(pair.first.hashtree_loop_name).second)
+              << "Duplicate loop device: " << pair.first.hashtree_loop_name;
+        }
+      }
+    }
+  }
 };
 
 }  // namespace apex
