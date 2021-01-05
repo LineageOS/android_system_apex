@@ -250,13 +250,15 @@ Result<MountedApexData> ResolveMountInfo(const BlockDevice& block,
 // By synchronizing the mounts info with Database on startup,
 // Apexd serves the correct package list even on the devices
 // which are not ro.apex.updatable.
-void MountedApexDatabase::PopulateFromMounts() {
+void MountedApexDatabase::PopulateFromMounts()
+    REQUIRES(!mounted_apexes_mutex_) {
   LOG(INFO) << "Populating APEX database from mounts...";
 
   std::unordered_map<std::string, int> active_versions;
 
   std::ifstream mounts("/proc/mounts");
   std::string line;
+  std::lock_guard lock(mounted_apexes_mutex_);
   while (std::getline(mounts, line)) {
     auto [block, mount_point] = ParseMountInfo(line);
     // TODO(b/158469914): distinguish between temp and non-temp mounts
@@ -274,12 +276,12 @@ void MountedApexDatabase::PopulateFromMounts() {
     }
 
     auto [package, version] = ParseMountPoint(mount_point);
-    AddMountedApex(package, false, *mount_data);
+    AddMountedApexLocked(package, false, *mount_data);
 
     auto active = active_versions[package] < version;
     if (active) {
       active_versions[package] = version;
-      SetLatest(package, mount_data->full_path);
+      SetLatestLocked(package, mount_data->full_path);
     }
     LOG(INFO) << "Found " << mount_point << " backed by"
               << (mount_data->deleted ? " deleted " : " ") << "file "

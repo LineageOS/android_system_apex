@@ -59,6 +59,7 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -68,10 +69,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <queue>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -1432,11 +1436,36 @@ Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir) {
   return ret;
 }
 
+std::vector<Result<void>> ActivateApexWorker(
+    std::queue<const ApexFile*>& apex_queue, std::mutex& mutex) {
+  std::vector<Result<void>> ret;
+
+  while (true) {
+    const ApexFile* apex;
+    {
+      std::lock_guard lock(mutex);
+      if (apex_queue.empty()) break;
+      apex = apex_queue.front();
+      apex_queue.pop();
+    }
+
+    if (auto res = ActivatePackageImpl(*apex); !res.ok()) {
+      ret.push_back(Error() << "Failed to activate " << apex->GetPath() << " : "
+                            << res.error());
+    } else {
+      ret.push_back({});
+    }
+  }
+
+  return ret;
+}
+
 Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
   const auto& packages_with_code = GetActivePackagesMap();
-  size_t failed_cnt = 0;
   size_t skipped_cnt = 0;
-  size_t activated_cnt = 0;
+  std::queue<const ApexFile*> apex_queue;
+  std::mutex apex_queue_mutex;
+
   for (const auto& apex : apexes) {
     if (!apex.GetManifest().providesharedapexlibs()) {
       uint64_t new_version =
@@ -1451,14 +1480,33 @@ Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
       }
     }
 
-    if (auto res = ActivatePackageImpl(apex); !res.ok()) {
-      LOG(ERROR) << "Failed to activate " << apex.GetPath() << " : "
-                 << res.error();
-      failed_cnt++;
-    } else {
-      activated_cnt++;
+    apex_queue.emplace(&apex);
+  }
+
+  // Creates threads as many as half number of cores for the performance.
+  size_t worker_num = std::max(get_nprocs_conf() >> 1, 1);
+  worker_num = std::min(apex_queue.size(), worker_num);
+
+  std::vector<std::future<std::vector<Result<void>>>> futures;
+  futures.reserve(worker_num);
+  for (size_t i = 0; i < worker_num; i++)
+    futures.push_back(std::async(std::launch::async, ActivateApexWorker,
+                                 std::ref(apex_queue),
+                                 std::ref(apex_queue_mutex)));
+
+  size_t activated_cnt = 0;
+  size_t failed_cnt = 0;
+  for (size_t i = 0; i < futures.size(); i++) {
+    for (const auto& res : futures[i].get()) {
+      if (res.ok()) {
+        ++activated_cnt;
+      } else {
+        ++failed_cnt;
+        LOG(ERROR) << res.error();
+      }
     }
   }
+
   if (failed_cnt > 0) {
     return Error() << "Failed to activate " << failed_cnt << " APEX packages";
   }

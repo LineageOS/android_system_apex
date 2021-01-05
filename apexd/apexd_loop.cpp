@@ -306,6 +306,8 @@ Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
     return ErrnoError() << "Failed to open loop-control";
   }
 
+  static std::mutex mlock;
+  std::lock_guard lock(mlock);
   int num = ioctl(ctl_fd.get(), LOOP_CTL_GET_FREE);
   if (num == -1) {
     return ErrnoError() << "Failed LOOP_CTL_GET_FREE";
