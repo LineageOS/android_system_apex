@@ -1487,6 +1487,15 @@ Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
   size_t worker_num = std::max(get_nprocs_conf() >> 1, 1);
   worker_num = std::min(apex_queue.size(), worker_num);
 
+  // On -eng builds there might be two different pre-installed art apexes.
+  // Attempting to activate them in parallel will result in UB (e.g.
+  // apexd-bootstrap might crash). In order to avoid this, for the time being on
+  // -eng builds activate apexes sequentially.
+  // TODO(b/176497601): remove this.
+  if (GetProperty("ro.build.type", "") == "eng") {
+    worker_num = 1;
+  }
+
   std::vector<std::future<std::vector<Result<void>>>> futures;
   futures.reserve(worker_num);
   for (size_t i = 0; i < worker_num; i++)
