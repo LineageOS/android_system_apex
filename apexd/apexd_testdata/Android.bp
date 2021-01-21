@@ -49,6 +49,38 @@ apex {
     test_only_force_compression: true,
 }
 
+genrule {
+  // Generates a compressed apex which doesn't have an original_apex file in it
+  name: "gen_capex_without_apex",
+  out: ["com.android.apex.compressed.v1_without_apex.capex"],
+  srcs: [":com.android.apex.compressed.v1"],
+  tools: ["soong_zip"],
+  cmd: "unzip -q $(in) -d $(genDir) && rm $(genDir)/original_apex && " +
+       "$(location soong_zip) -d -C $(genDir) -D $(genDir) -L 9 " +
+       "-o $(genDir)/com.android.apex.compressed.v1_without_apex.capex"
+}
+
+genrule {
+  // Generates a capex which has same module name as com.android.apex.compressed, but
+  // is contains a different public key.
+  name: "gen_key_mismatch_capex",
+  out: ["com.android.apex.compressed_different_key.capex"],
+  srcs: [":apex.apexd_test_no_inst_key"],
+  tools: ["soong_zip", "zipalign", "conv_apex_manifest", "apex_compression_tool"],
+  cmd: "unzip -q $(in) -d $(genDir) && " +
+       "$(location conv_apex_manifest) setprop name com.android.apex.compressed $(genDir)/apex_manifest.pb && " +
+       "$(location soong_zip) -d -C $(genDir) -D $(genDir) " +
+       "-s apex_manifest.pb -s apex_payload.img -s apex_pubkey " +
+       "-o $(genDir)/unaligned.apex && " +
+       "$(location zipalign) -f 4096 $(genDir)/unaligned.apex " +
+       "$(genDir)/com.android.apex.compressed_different_key.apex && " +
+       "$(location apex_compression_tool) compress " +
+       "--apex_compression_tool_path='out/soong/host/linux-x86/bin:prebuilts/sdk/tools/linux/bin' " +
+       "--input=$(genDir)/com.android.apex.compressed_different_key.apex " +
+       "--output=$(genDir)/com.android.apex.compressed_different_key.capex"
+}
+
+
 apex {
     name: "com.android.apex.compressed.v1_original",
     manifest: "manifest_compressed.json",
