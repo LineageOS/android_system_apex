@@ -30,6 +30,7 @@
 #include "apexd_utils.h"
 
 using android::base::GetExecutableDirectory;
+using android::base::RemoveFileIfExists;
 using android::base::Result;
 
 static const std::string kTestDataDir = GetExecutableDirectory() + "/";
@@ -265,6 +266,31 @@ TEST(ApexFileTest, DecompressFailForNormalApex) {
   ASSERT_FALSE(result.ok());
   ASSERT_THAT(result.error().message(),
               ::testing::HasSubstr("Cannot decompress an uncompressed APEX"));
+}
+
+TEST(ApexFileTest, DecompressFailIfPublicKeyNotSameAsOriginal) {
+  const std::string compressed_file_path =
+      kTestDataDir +
+      "com.android.apex.compressed_key_mismatch_with_original.capex";
+  Result<ApexFile> compressed_apex_file = ApexFile::Open(compressed_file_path);
+  ASSERT_RESULT_OK(compressed_apex_file);
+
+  TemporaryFile decompression_file;
+  RemoveFileIfExists(decompression_file.path);
+
+  // Compressed APEX should fail to decompress if public key is different than
+  // original APEX
+  auto result = compressed_apex_file->Decompress(decompression_file.path);
+  ASSERT_FALSE(result.ok());
+  ASSERT_THAT(
+      result.error().message(),
+      ::testing::HasSubstr(
+          "Public key of compressed APEX is different than original APEX"));
+
+  // The decompressed_file should not exist
+  auto exist = PathExists(decompression_file.path);
+  ASSERT_RESULT_OK(exist);
+  ASSERT_FALSE(*exist);
 }
 
 }  // namespace
