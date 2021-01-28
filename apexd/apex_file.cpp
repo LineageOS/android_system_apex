@@ -39,6 +39,7 @@
 using android::base::borrowed_fd;
 using android::base::Error;
 using android::base::ReadFullyAtOffset;
+using android::base::RemoveFileIfExists;
 using android::base::Result;
 using android::base::unique_fd;
 
@@ -426,13 +427,33 @@ Result<void> ApexFile::Decompress(const std::string& dest_path) const {
     return ErrnoError() << "Failed to open decompression destination "
                         << GetPath();
   }
+
+  // Prepare a guard that deletes the extracted file if anything goes wrong
+  auto decompressed_guard = android::base::make_scope_guard(
+      [&dest_path] { RemoveFileIfExists(dest_path); });
+
+  // Extract the original_apex to dest_path
   ret = ExtractEntryToFile(handle, &entry, dest_fd.get());
   if (ret < 0) {
     return Error() << "Could not decompress to file " << dest_path
                    << ErrorCodeString(ret);
   }
 
+  // Post decompression verification
+  auto decompressed_apex = ApexFile::Open(dest_path);
+  if (!decompressed_apex.ok()) {
+    return Error() << "Could not open decompressed APEX: "
+                   << decompressed_apex.error();
+  }
+  if (GetBundledPublicKey() != decompressed_apex->GetBundledPublicKey()) {
+    return Error()
+           << "Public key of compressed APEX is different than original APEX";
+  }
+
+  // Verification complete. Accept the decompressed file
+  decompressed_guard.Disable();
   LOG(VERBOSE) << "Decompressed " << src_path << " to " << dest_path;
+
   return {};
 }
 
