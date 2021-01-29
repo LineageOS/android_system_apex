@@ -24,6 +24,17 @@ soong_config_module_type {
     ],
 }
 
+// TODO(b/178585590): delete this after testing linking strategy
+soong_config_module_type {
+    name: "library_linking_strategy_apex_defaults",
+    module_type: "apex_defaults",
+    config_namespace: "ANDROID",
+    variables: ["library_linking_strategy"],
+    properties: [
+        "manifest",
+    ],
+}
+
 library_linking_strategy_cc_defaults {
     name: "library_linking_strategy_sample_defaults",
     soong_config_variables: {
