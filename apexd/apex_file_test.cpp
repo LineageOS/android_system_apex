@@ -293,6 +293,25 @@ TEST(ApexFileTest, DecompressFailIfPublicKeyNotSameAsOriginal) {
   ASSERT_FALSE(*exist);
 }
 
+TEST(ApexFileTest, GetPathReturnsRealpath) {
+  const std::string real_path = kTestDataDir + "apex.apexd_test.apex";
+  const std::string symlink_path =
+      kTestDataDir + "apex.apexd_test.symlink.apex";
+
+  // In case the link already exists
+  int ret = unlink(symlink_path.c_str());
+  ASSERT_TRUE(ret == 0 || errno == ENOENT)
+      << "failed to unlink " << symlink_path;
+
+  ret = symlink(real_path.c_str(), symlink_path.c_str());
+  ASSERT_EQ(0, ret) << "failed to create symlink at " << symlink_path;
+
+  // Open with the symlink. Realpath is expected.
+  Result<ApexFile> apex_file = ApexFile::Open(symlink_path);
+  ASSERT_RESULT_OK(apex_file);
+  ASSERT_EQ(real_path, apex_file->GetPath());
+}
+
 }  // namespace
 }  // namespace apex
 }  // namespace android

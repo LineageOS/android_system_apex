@@ -157,8 +157,16 @@ Result<ApexFile> ApexFile::Open(const std::string& path) {
     return manifest.error();
   }
 
-  return ApexFile(path, image_offset, image_size, std::move(*manifest), pubkey,
-                  fs_type, is_compressed);
+  // b/179211712 the stored path should be the realpath, otherwise the path we
+  // get by scanning the directory would be different from the path we get
+  // by reading /proc/mounts, if the apex file is on a symlink dir.
+  std::string realpath;
+  if (!android::base::Realpath(path, &realpath)) {
+    return ErrnoError() << "can't get realpath of " << path;
+  }
+
+  return ApexFile(realpath, image_offset, image_size, std::move(*manifest),
+                  pubkey, fs_type, is_compressed);
 }
 
 // AVB-related code.
