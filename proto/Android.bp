@@ -94,3 +94,19 @@ cc_library_static {
     },
     srcs: ["session_state.proto"],
 }
+
+genrule {
+    name: "apex-protos",
+    tools: ["soong_zip"],
+    dist: {
+        targets: ["apexer_tools"],
+    },
+    srcs: [
+        "apex_manifest.proto",
+        "apex_build_info.proto",
+    ],
+    out: ["apex-protos.zip"],
+    cmd: "mkdir $(genDir)/protos && " +
+        "cp $(in) $(genDir)/protos && " +
+        "$(location soong_zip) -o $(out) -C $(genDir)/protos -D $(genDir)/protos",
+}
