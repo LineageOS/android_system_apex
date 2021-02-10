@@ -199,7 +199,7 @@ java_test_host {
     srcs:  ["src/**/ApexCompressionTests.java"],
     libs: ["tradefed", "truth-prebuilt"],
     static_libs: ["cts-install-lib-host"],
-    test_config: "apex-compression-tests.xml",
+    test_config: "apex_compression_platform_tests.xml",
     test_suites: ["general-tests"],
     data: [
         ":com.android.apex.compressed.v1",
