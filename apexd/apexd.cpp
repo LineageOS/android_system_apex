@@ -88,7 +88,6 @@ using android::base::Join;
 using android::base::ParseUint;
 using android::base::ReadFully;
 using android::base::Result;
-using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::dm::DeviceMapper;
@@ -283,6 +282,18 @@ Result<DmVerityDevice> CreateVerityDevice(const std::string& name,
   return DmVerityDevice(name, dev_path);
 }
 
+/**
+ * When we create hardlink for a new apex package in kActiveApexPackagesDataDir,
+ * there might be an older version of the same package already present in there.
+ * Since a new version of the same package is being installed on this boot, the
+ * old one needs to deleted so that we don't end up activating same package
+ * twice.
+ *
+ * @param affected_packages package names of the news apex that are being
+ * installed in this boot
+ * @param files_to_keep path to the new apex packages in
+ * kActiveApexPackagesDataDir
+ */
 Result<void> RemovePreviouslyActiveApexFiles(
     const std::unordered_set<std::string>& affected_packages,
     const std::unordered_set<std::string>& files_to_keep) {
@@ -1542,11 +1553,6 @@ Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
   return {};
 }
 
-bool ShouldActivateApexOnData(const ApexFile& apex) {
-  return ApexPreinstalledData::GetInstance().HasPreInstalledVersion(
-      apex.GetManifest().name());
-}
-
 }  // namespace
 
 Result<void> ScanPackagesDirAndActivate(const char* apex_package_dir) {
@@ -2258,6 +2264,104 @@ void Initialize(CheckpointInterface* checkpoint_service) {
   gMountedApexes.PopulateFromMounts();
 }
 
+// Scans all APEX in the given directories and groups them by their package name
+std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
+    const std::vector<std::string>& dirs_to_scan) {
+  LOG(INFO) << "Scanning all apex";
+  std::unordered_map<std::string, std::vector<ApexFile>> result;
+
+  // TODO(b/179248390): scan parallelly if possible
+  for (const auto& dir : dirs_to_scan) {
+    auto scan_status = ScanApexFiles(dir.c_str());
+    if (scan_status.ok()) {
+      for (ApexFile& apex_file : *scan_status) {
+        const std::string& package_name = apex_file.GetManifest().name();
+        if (result.find(package_name) == result.end()) {
+          result[package_name] = std::vector<ApexFile>{};
+        }
+        result[package_name].emplace_back(std::move(apex_file));
+      }
+    } else {
+      LOG(ERROR) << "Failed to scan APEX packages from " << dir << " : "
+                 << scan_status.error();
+      if (auto revert = RevertActiveSessionsAndReboot(""); !revert.ok()) {
+        LOG(ERROR) << "Failed to revert : " << revert.error();
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * For every package X, there can be at most two APEX, pre-installed vs
+ * installed on data. We usually select only one of these APEX for each package
+ * based on the following conditions:
+ *   - Package X must be pre-installed on one of the built-in directories.
+ *   - If there are multiple APEX, we select the one with highest version.
+ *   - If there are multiple with same version, we give priority to APEX on
+ * /data partition.
+ *
+ * Typically, only one APEX is activated for each package, but APEX that provide
+ * shared libs are exceptions. We have to activate both APEX for them.
+ *
+ * @param all_apex all the APEX grouped by their package name
+ * @return list of ApexFile that needs to be activated
+ */
+std::vector<ApexFile> SelectApexForActivation(
+    std::unordered_map<std::string, std::vector<ApexFile>>&& all_apex,
+    const ApexPreinstalledData& instance) {
+  LOG(INFO) << "Selecting APEX for activation";
+  std::vector<ApexFile> activation_list;
+  // For every package X, select which APEX to activate
+  for (auto& apex_it : all_apex) {
+    const std::string& package_name = apex_it.first;
+    std::vector<ApexFile> apex_files = std::move(apex_it.second);
+
+    if (apex_files.size() > 2 || apex_files.size() == 0) {
+      LOG(FATAL) << "Unexpectedly found more than two versions or none for "
+                    "APEX package "
+                 << package_name;
+      continue;
+    }
+
+    // The package must have a pre-installed version before we consider it for
+    // activation
+    if (!instance.HasPreInstalledVersion(package_name)) {
+      LOG(INFO) << "Package " << package_name << " is not pre-installed";
+      continue;
+    }
+
+    if (apex_files.size() == 1) {
+      activation_list.emplace_back(std::move(apex_files[0]));
+      continue;
+    }
+
+    // Given an APEX A and the version of the other APEX B, should we activate
+    // it?
+    auto select_apex = [&instance, &activation_list](
+                           ApexFile&& a, const int version_b) mutable {
+      // APEX that provides shared library always gets activated
+      const bool provides_shared_apex_libs =
+          a.GetManifest().providesharedapexlibs();
+      // If A has higher version than B, then it should be activated
+      const bool higher_version = a.GetManifest().version() > version_b;
+      // If A has same version as B, then data version should get activated
+      const bool same_version_priority_to_data =
+          a.GetManifest().version() == version_b &&
+          !instance.IsPreInstalledApex(a);
+      if (provides_shared_apex_libs || higher_version ||
+          same_version_priority_to_data) {
+        activation_list.emplace_back(std::move(a));
+      }
+    };
+    const int version_0 = apex_files[0].GetManifest().version();
+    const int version_1 = apex_files[1].GetManifest().version();
+    select_apex(std::move(apex_files[0]), version_1);
+    select_apex(std::move(apex_files[1]), version_0);
+  }
+  return activation_list;
+}
+
 void OnStart() {
   LOG(INFO) << "Marking APEXd as starting";
   if (!android::base::SetProperty(kApexStatusSysprop, kApexStatusStarting)) {
@@ -2287,66 +2391,43 @@ void OnStart() {
     LOG(ERROR) << sharedlibs_apex_dir.error();
   }
 
-  // Activate APEXes from /data/apex. If one in the directory is newer than the
-  // system one, the new one will eclipse the old one.
+  // If there is any new apex to be installed on /data/app-staging, hardlink
+  // them to /data/apex/active first.
   ScanStagedSessionsDirAndStage();
   auto status = ResumeRevertIfNeeded();
   if (!status.ok()) {
     LOG(ERROR) << "Failed to resume revert : " << status.error();
   }
 
-  std::vector<ApexFile> data_apex;
-  if (auto scan = ScanApexFiles(kActiveApexPackagesDataDir); !scan.ok()) {
-    LOG(ERROR) << "Failed to scan packages from " << kActiveApexPackagesDataDir
-               << " : " << scan.error();
-    if (auto revert = RevertActiveSessionsAndReboot(""); !revert.ok()) {
-      LOG(ERROR) << "Failed to revert : " << revert.error();
-    }
-  } else {
-    auto filter_fn = [](const ApexFile& apex) {
-      if (!ShouldActivateApexOnData(apex)) {
-        LOG(WARNING) << "Skipping " << apex.GetPath();
-        return false;
-      }
-      return true;
-    };
-    std::copy_if(std::make_move_iterator(scan->begin()),
-                 std::make_move_iterator(scan->end()),
-                 std::back_inserter(data_apex), filter_fn);
-  }
+  // Scan every APEX on device
+  std::vector<std::string> dirs_to_scan = kApexPackageBuiltinDirs;
+  dirs_to_scan.push_back(kActiveApexPackagesDataDir);
+  std::unordered_map<std::string, std::vector<ApexFile>> all_apex =
+      ScanAndGroupApexFiles(dirs_to_scan);
+  // There can be multiple APEX packages with package name X. Determine which
+  // one to activate.
+  const auto& instance = ApexPreinstalledData::GetInstance();
+  std::vector<ApexFile> activation_list =
+      SelectApexForActivation(std::move(all_apex), instance);
 
-  if (data_apex.size() > 0) {
-    Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex.size());
+  int data_apex_cnt = std::count_if(
+      activation_list.begin(), activation_list.end(), [](const ApexFile& a) {
+        return !ApexPreinstalledData::GetInstance().IsPreInstalledApex(a);
+      });
+  if (data_apex_cnt > 0) {
+    Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex_cnt);
     if (!pre_allocate.ok()) {
       LOG(ERROR) << "Failed to pre-allocate loop devices : "
                  << pre_allocate.error();
     }
   }
 
-  if (auto ret = ActivateApexPackages(data_apex); !ret.ok()) {
-    LOG(ERROR) << "Failed to activate packages from "
-               << kActiveApexPackagesDataDir << " : " << ret.error();
+  // TODO(b/179248390): activate parallelly if possible
+  if (auto ret = ActivateApexPackages(activation_list); !ret.ok()) {
+    LOG(ERROR) << "Failed to activate packages: " << ret.error();
     Result<void> revert_status = RevertActiveSessionsAndReboot("");
     if (!revert_status.ok()) {
-      LOG(ERROR) << "Failed to revert : " << revert_status.error()
-                 << kActiveApexPackagesDataDir << " : " << ret.error();
-    }
-  }
-
-  // Now also scan and activate APEXes from pre-installed directories.
-  for (const auto& dir : kApexPackageBuiltinDirs) {
-    auto scan_status = ScanApexFiles(dir.c_str());
-    if (!scan_status.ok()) {
-      LOG(ERROR) << "Failed to scan APEX packages from " << dir << " : "
-                 << scan_status.error();
-      if (auto revert = RevertActiveSessionsAndReboot(""); !revert.ok()) {
-        LOG(ERROR) << "Failed to revert : " << revert.error();
-      }
-    }
-    if (auto activate = ActivateApexPackages(*scan_status); !activate.ok()) {
-      // This should never happen. Like **really** never.
-      LOG(ERROR) << "Failed to activate packages from " << dir << " : "
-                 << activate.error();
+      LOG(ERROR) << "Failed to revert : " << ret.error();
     }
   }
 
@@ -2498,46 +2579,8 @@ Result<void> MarkStagedSessionSuccessful(const int session_id) {
 
 namespace {
 
-// Find dangling mounts and unmount them.
-// If one is on /data/apex/active, remove it.
-void UnmountDanglingMounts() {
-  std::multimap<std::string, MountedApexData> danglings;
-  gMountedApexes.ForallMountedApexes([&](const std::string& package,
-                                         const MountedApexData& data,
-                                         bool latest) {
-    Result<ApexFile> apex = ApexFile::Open(data.full_path);
-    if (!apex.ok()) {
-      return;
-    }
-    if (apex->GetManifest().providesharedapexlibs()) {
-      return;
-    }
-    if (!latest) {
-      danglings.insert({package, data});
-    }
-  });
-
-  for (const auto& [package, data] : danglings) {
-    const std::string& path = data.full_path;
-    LOG(VERBOSE) << "Unmounting " << data.mount_point;
-    gMountedApexes.RemoveMountedApex(package, path);
-    if (auto st = Unmount(data); !st.ok()) {
-      LOG(ERROR) << st.error();
-    }
-    if (StartsWith(path, kActiveApexPackagesDataDir)) {
-      LOG(VERBOSE) << "Deleting old APEX " << path;
-      if (unlink(path.c_str()) != 0) {
-        PLOG(ERROR) << "Failed to delete " << path;
-      }
-    }
-  }
-
-  RemoveObsoleteHashTrees();
-}
-
-// Removes APEXes on /data that don't have corresponding pre-installed version
-// or that are corrupt
-void RemoveOrphanedApexes() {
+// Removes APEXes on /data that have not been activated
+void RemoveInactiveDataApex() {
   auto data_apexes =
       FindFilesBySuffix(kActiveApexPackagesDataDir, {kApexPackageSuffix});
   if (!data_apexes.ok()) {
@@ -2546,23 +2589,10 @@ void RemoveOrphanedApexes() {
     return;
   }
   for (const auto& path : *data_apexes) {
-    auto apex = ApexFile::Open(path);
-    if (!apex.ok()) {
-      LOG(DEBUG) << "Failed to open APEX " << path << " : " << apex.error();
-      // before removing, double-check if the path is active or not
-      // just in case ApexFile::Open() fails with valid APEX
-      if (!apexd_private::IsMounted(path)) {
-        LOG(DEBUG) << "Removing corrupt APEX " << path;
-        if (unlink(path.c_str()) != 0) {
-          PLOG(ERROR) << "Failed to unlink " << path;
-        }
-      }
-      continue;
-    }
-    if (!ShouldActivateApexOnData(*apex)) {
-      LOG(DEBUG) << "Removing orphaned APEX " << path;
+    if (!apexd_private::IsMounted(path)) {
+      LOG(DEBUG) << "Removing inactive data APEX " << path;
       if (unlink(path.c_str()) != 0) {
-        PLOG(ERROR) << "Failed to unlink " << path;
+        PLOG(ERROR) << "Failed to unlink inactive data APEX " << path;
       }
     }
   }
@@ -2571,8 +2601,7 @@ void RemoveOrphanedApexes() {
 }  // namespace
 
 void BootCompletedCleanup() {
-  UnmountDanglingMounts();
-  RemoveOrphanedApexes();
+  RemoveInactiveDataApex();
   ApexSession::DeleteFinalizedSessions();
 }
 
