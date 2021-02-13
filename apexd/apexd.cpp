@@ -87,6 +87,7 @@ using android::base::GetProperty;
 using android::base::Join;
 using android::base::ParseUint;
 using android::base::ReadFully;
+using android::base::RemoveFileIfExists;
 using android::base::Result;
 using android::base::StringPrintf;
 using android::base::unique_fd;
@@ -1437,17 +1438,21 @@ Result<void> AbortStagedSession(int session_id) {
   }
 }
 
-// TODO(b/139041058): cleanup activation logic to avoid unnecessary scanning.
 namespace {
 
-Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir) {
+Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir,
+                                            bool include_compressed = false) {
   LOG(INFO) << "Scanning " << apex_package_dir << " looking for APEX packages.";
   if (access(apex_package_dir, F_OK) != 0 && errno == ENOENT) {
     LOG(INFO) << "... does not exist. Skipping";
     return {};
   }
+  std::vector<std::string> suffix_list = {kApexPackageSuffix};
+  if (include_compressed) {
+    suffix_list.push_back(kCompressedApexPackageSuffix);
+  }
   Result<std::vector<std::string>> scan =
-      FindFilesBySuffix(apex_package_dir, {kApexPackageSuffix});
+      FindFilesBySuffix(apex_package_dir, suffix_list);
   if (!scan.ok()) {
     return Error() << "Failed to scan " << apex_package_dir << " : "
                    << scan.error();
@@ -2272,7 +2277,7 @@ std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
 
   // TODO(b/179248390): scan parallelly if possible
   for (const auto& dir : dirs_to_scan) {
-    auto scan_status = ScanApexFiles(dir.c_str());
+    auto scan_status = ScanApexFiles(dir.c_str(), true /*include_compressed*/);
     if (scan_status.ok()) {
       for (ApexFile& apex_file : *scan_status) {
         const std::string& package_name = apex_file.GetManifest().name();
@@ -2362,6 +2367,80 @@ std::vector<ApexFile> SelectApexForActivation(
   return activation_list;
 }
 
+/**
+ * For each compressed APEX, decompress it to kApexDecompressedDir and hard
+ * link it to kActiveApexPackagesDataDir. Returns list of decompressed APEX.
+ */
+std::vector<ApexFile> ProcessCompressedApex(
+    std::vector<ApexFile>&& compressed_apex,
+    const std::string& decompression_dir = kApexDecompressedDir,
+    const std::string& active_apex_dir = kActiveApexPackagesDataDir) {
+  std::vector<ApexFile> decompressed_apex_list;
+  for (const ApexFile& apex_file : compressed_apex) {
+    if (!apex_file.IsCompressed()) {
+      continue;
+    }
+
+    // Files to clean up if processing fails for any reason
+    std::vector<std::string> cleanup;
+    auto scope_gaurd = android::base::make_scope_guard([&cleanup] {
+      for (const auto& file_path : cleanup) {
+        RemoveFileIfExists(file_path);
+      }
+    });
+
+    // Decompress them to kApexDecompressedDir
+    std::string dest_path_decompressed = StringPrintf(
+        "%s/%s%s", decompression_dir.c_str(),
+        GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
+    cleanup.push_back(dest_path_decompressed);
+    auto result = apex_file.Decompress(dest_path_decompressed);
+    if (!result.ok()) {
+      LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
+                 << " " << result.error();
+      continue;
+    }
+
+    // Fix label of decompressed file
+    auto restore = RestoreconPath(dest_path_decompressed);
+    if (!restore.ok()) {
+      LOG(ERROR) << restore.error();
+      continue;
+    }
+
+    // Hardlink to kActiveApexPackagesDataDir so that they get activated on
+    // reboot
+    const auto& dest_path_active = StringPrintf(
+        "%s/%s%s", active_apex_dir.c_str(),
+        GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
+    cleanup.push_back(dest_path_active);
+    if (link(dest_path_decompressed.c_str(), dest_path_active.c_str()) != 0) {
+      LOG(ERROR) << "Failed to link decompressed APEX " << apex_file.GetPath();
+      continue;
+    }
+
+    // Post decompression verification
+    auto hardlinked_apex = ApexFile::Open(dest_path_active);
+    if (!hardlinked_apex.ok()) {
+      LOG(ERROR) << "Failed to open hard-linked APEX : " << dest_path_active
+                 << hardlinked_apex.error();
+      continue;
+    }
+    if (apex_file.GetBundledPublicKey() !=
+        hardlinked_apex->GetBundledPublicKey()) {
+      LOG(ERROR) << "Public key of compressed APEX is different than original "
+                    "APEX for "
+                 << hardlinked_apex->GetPath();
+      continue;
+    }
+
+    // Decompressed APEX has been successfully processed. Accept it.
+    scope_gaurd.Disable();
+    decompressed_apex_list.emplace_back(std::move(*hardlinked_apex));
+  }
+  return std::move(decompressed_apex_list);
+}
+
 void OnStart() {
   LOG(INFO) << "Marking APEXd as starting";
   if (!android::base::SetProperty(kApexStatusSysprop, kApexStatusStarting)) {
@@ -2409,6 +2488,22 @@ void OnStart() {
   const auto& instance = ApexPreinstalledData::GetInstance();
   std::vector<ApexFile> activation_list =
       SelectApexForActivation(std::move(all_apex), instance);
+
+  // Process compressed APEX, if any
+  std::vector<ApexFile> compressed_apex;
+  for (auto it = activation_list.begin(); it != activation_list.end();) {
+    if (it->IsCompressed()) {
+      compressed_apex.emplace_back(std::move(*it));
+      it = activation_list.erase(it);
+    } else {
+      it++;
+    }
+  }
+  if (!compressed_apex.empty()) {
+    auto decompressed_apex = ProcessCompressedApex(std::move(compressed_apex));
+    std::move(decompressed_apex.begin(), decompressed_apex.end(),
+              std::back_inserter(activation_list));
+  }
 
   int data_apex_cnt = std::count_if(
       activation_list.begin(), activation_list.end(), [](const ApexFile& a) {

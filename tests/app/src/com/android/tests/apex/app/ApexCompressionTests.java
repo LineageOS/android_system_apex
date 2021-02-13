@@ -31,13 +31,14 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class ApexCompressionTests {
     private static final String COMPRESSED_APEX_PACKAGE_NAME = "com.android.apex.compressed";
+    private final Context mContext = InstrumentationRegistry.getContext();
+    private final PackageManager mPm = mContext.getPackageManager();
 
     @Test
     public void testCompressedApexCanBeQueried() throws Exception {
-        Context context = InstrumentationRegistry.getContext();
-        PackageManager pm = context.getPackageManager();
-        PackageInfo pi = pm.getPackageInfo(COMPRESSED_APEX_PACKAGE_NAME,
-                PackageManager.MATCH_APEX | PackageManager.MATCH_FACTORY_ONLY);
+        // Only retrieve active apex package
+        PackageInfo pi = mPm.getPackageInfo(
+                COMPRESSED_APEX_PACKAGE_NAME, PackageManager.MATCH_APEX);
         assertThat(pi).isNotNull();
         assertThat(pi.isApex).isTrue();
         assertThat(pi.packageName).isEqualTo(COMPRESSED_APEX_PACKAGE_NAME);
