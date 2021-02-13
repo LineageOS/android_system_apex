@@ -113,6 +113,9 @@ std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
 std::vector<ApexFile> SelectApexForActivation(
     std::unordered_map<std::string, std::vector<ApexFile>>&& all_apex,
     const ApexPreinstalledData& instance);
+std::vector<ApexFile> ProcessCompressedApex(
+    std::vector<ApexFile>&& compressed_apex,
+    const std::string& decompression_dir, const std::string& active_apex_dir);
 // Notifies system that apexes are activated by setting apexd.status property to
 // "activated".
 // Must only be called during boot (i.e. apexd.status is not "ready" or

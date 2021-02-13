@@ -75,7 +75,6 @@ cc_defaults {
   defaults: ["libapex-deps"],
   shared_libs: [
     "libbinder",
-    "libselinux",
     "liblog",
     "liblogwrap",
   ],
@@ -199,6 +198,7 @@ cc_defaults {
     "libcutils",
     "libprotobuf-cpp-full",
     "libziparchive",
+    "libselinux",
   ],
   static_libs: [
     "lib_apex_session_state_proto",
