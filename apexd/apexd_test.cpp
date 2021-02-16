@@ -259,5 +259,94 @@ TEST(ApexdUnitTest, ProcessCompressedApexRunsVerification) {
   ASSERT_EQ(return_value.size(), 0u);
 }
 
+TEST(ApexdUnitTest, DecompressedApexCleanupDeleteIfActiveFileMissing) {
+  // Create decompressed apex in decompression_dir
+  TemporaryDir decompression_dir;
+  fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
+           decompression_dir.path);
+
+  TemporaryDir active_apex_dir;
+  RemoveUnlinkedDecompressedApex(decompression_dir.path, active_apex_dir.path);
+
+  // Assert that decompressed apex was deleted
+  auto decompressed_file_path =
+      StringPrintf("%s/com.android.apex.compressed.v1_original.apex",
+                   decompression_dir.path);
+  auto file_exists = PathExists(decompressed_file_path);
+  ASSERT_TRUE(IsOk(file_exists));
+  ASSERT_FALSE(*file_exists)
+      << "Unlinked decompressed file did not get deleted";
+}
+
+TEST(ApexdUnitTest, DecompressedApexCleanupSameFilenameButNotLinked) {
+  // Create decompressed apex in decompression_dir
+  TemporaryDir decompression_dir;
+  const std::string filename = "com.android.apex.compressed.v1_original.apex";
+  fs::copy(GetTestFile(filename), decompression_dir.path);
+  auto decompressed_file_path =
+      StringPrintf("%s/%s", decompression_dir.path, filename.c_str());
+
+  // Copy the same file to active_apex_dir, instead of hard-linking
+  TemporaryDir active_apex_dir;
+  fs::copy(GetTestFile(filename), active_apex_dir.path);
+
+  RemoveUnlinkedDecompressedApex(decompression_dir.path, active_apex_dir.path);
+
+  // Assert that decompressed apex was deleted
+  auto file_exists = PathExists(decompressed_file_path);
+  ASSERT_TRUE(IsOk(file_exists));
+  ASSERT_FALSE(*file_exists)
+      << "Unlinked decompressed file did not get deleted";
+}
+
+TEST(ApexdUnitTest, DecompressedApexCleanupLinkedSurvives) {
+  // Create decompressed apex in decompression_dir
+  TemporaryDir decompression_dir;
+  const std::string filename = "com.android.apex.compressed.v1_original.apex";
+  fs::copy(GetTestFile(filename), decompression_dir.path);
+  auto decompressed_file_path =
+      StringPrintf("%s/%s", decompression_dir.path, filename.c_str());
+
+  // Now hardlink it to active_apex_dir
+  TemporaryDir active_apex_dir;
+  auto active_file_path =
+      StringPrintf("%s/%s", active_apex_dir.path, filename.c_str());
+  std::error_code ec;
+  fs::create_hard_link(decompressed_file_path, active_file_path, ec);
+  ASSERT_FALSE(ec) << "Failed to create hardlink";
+
+  RemoveUnlinkedDecompressedApex(decompression_dir.path, active_apex_dir.path);
+
+  // Assert that decompressed apex was not deleted
+  auto file_exists = PathExists(decompressed_file_path);
+  ASSERT_TRUE(IsOk(file_exists));
+  ASSERT_TRUE(*file_exists) << "Linked decompressed file got deleted";
+}
+
+TEST(ApexdUnitTest, DecompressedApexCleanupDeleteIfLinkedToDifferentFilename) {
+  // Create decompressed apex in decompression_dir
+  TemporaryDir decompression_dir;
+  const std::string filename = "com.android.apex.compressed.v1_original.apex";
+  fs::copy(GetTestFile(filename), decompression_dir.path);
+  auto decompressed_file_path =
+      StringPrintf("%s/%s", decompression_dir.path, filename.c_str());
+
+  // Now hardlink it to active_apex_dir but with different filename
+  TemporaryDir active_apex_dir;
+  auto active_file_path =
+      StringPrintf("%s/different.name.apex", active_apex_dir.path);
+  std::error_code ec;
+  fs::create_hard_link(decompressed_file_path, active_file_path, ec);
+  ASSERT_FALSE(ec) << "Failed to create hardlink";
+
+  RemoveUnlinkedDecompressedApex(decompression_dir.path, active_apex_dir.path);
+
+  // Assert that decompressed apex was deleted
+  auto file_exists = PathExists(decompressed_file_path);
+  ASSERT_TRUE(IsOk(file_exists));
+  ASSERT_FALSE(*file_exists)
+      << "Unlinked decompressed file did not get deleted";
+}
+
 }  // namespace apex
 }  // namespace android

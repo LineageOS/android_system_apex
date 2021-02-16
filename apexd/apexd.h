@@ -126,6 +126,8 @@ void OnAllPackagesActivated(bool is_bootstrap);
 // Must only be called during boot (i.e. apexd.status is not "ready" or
 // "activated").
 void OnAllPackagesReady();
+void RemoveUnlinkedDecompressedApex(const std::string& decompression_dir,
+                                    const std::string& apex_active_dir);
 void OnBootCompleted();
 void BootCompletedCleanup();
 int SnapshotOrRestoreDeUserData();

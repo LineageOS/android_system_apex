@@ -14,6 +14,10 @@
 
 // Build rules to build shim apexes.
 
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 genrule {
   name: "com.android.apex.cts.shim.pem",
   out: ["com.android.apex.cts.shim.pem"],

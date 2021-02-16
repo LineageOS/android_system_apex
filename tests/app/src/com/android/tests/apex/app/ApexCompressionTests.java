@@ -18,12 +18,18 @@ package com.android.tests.apex.app;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 
 import androidx.test.InstrumentationRegistry;
 
+import com.android.cts.install.lib.Install;
+import com.android.cts.install.lib.TestApp;
+
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -34,6 +40,31 @@ public class ApexCompressionTests {
     private final Context mContext = InstrumentationRegistry.getContext();
     private final PackageManager mPm = mContext.getPackageManager();
 
+    private static final TestApp UNCOMPRESSED_APEX_V1 = new TestApp(
+            "TestAppUncompressedApexV1", COMPRESSED_APEX_PACKAGE_NAME, 2, /*isApex*/ true,
+            "com.android.apex.compressed.v1_original.apex");
+    private static final TestApp UNCOMPRESSED_APEX_V2 = new TestApp(
+            "TestAppUncompressedApexV2", COMPRESSED_APEX_PACKAGE_NAME, 2, /*isApex*/ true,
+            "com.android.apex.compressed.v2_original.apex");
+
+    @Before
+    public void adoptShellPermissions() {
+        androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation()
+                .getUiAutomation()
+                .adoptShellPermissionIdentity(
+                        Manifest.permission.INSTALL_PACKAGES,
+                        Manifest.permission.DELETE_PACKAGES);
+    }
+
+    @After
+    public void dropShellPermissions() {
+        androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation()
+                .getUiAutomation()
+                .dropShellPermissionIdentity();
+    }
+
     @Test
     public void testCompressedApexCanBeQueried() throws Exception {
         // Only retrieve active apex package
@@ -43,5 +74,15 @@ public class ApexCompressionTests {
         assertThat(pi.isApex).isTrue();
         assertThat(pi.packageName).isEqualTo(COMPRESSED_APEX_PACKAGE_NAME);
         assertThat(pi.getLongVersionCode()).isEqualTo(1);
+    }
+
+    @Test
+    public void testUnusedDecompressedApexIsCleanedUp_HigherVersion() throws Exception {
+        Install.single(UNCOMPRESSED_APEX_V2).setStaged().commit();
+    }
+
+    @Test
+    public void testUnusedDecompressedApexIsCleanedUp_SameVersion() throws Exception {
+        Install.single(UNCOMPRESSED_APEX_V1).setStaged().commit();
     }
 }

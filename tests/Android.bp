@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 java_defaults {
     name: "apex_e2e_test_defaults",
     libs: [
@@ -215,4 +219,8 @@ android_test_helper_app {
     srcs: ["app/src/**/*.java"],
     static_libs: ["androidx.test.rules", "cts-install-lib", "testng"],
     test_suites: ["general-tests"],
+    java_resources: [
+        ":com.android.apex.compressed.v1_original",
+        ":com.android.apex.compressed.v2_original",
+    ]
 }

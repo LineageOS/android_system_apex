@@ -15,6 +15,10 @@
 // These apex definitions will generate the prebuilt test data. The modules
 // are disabled so as not to pollute the build.
 
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 apex_key {
     name: "com.android.apex.test_package.key",
     public_key: "com.android.apex.test_package.avbpubkey",
@@ -110,6 +114,16 @@ apex {
     key: "com.android.apex.compressed.key",
     installable: false,
     test_only_force_compression: true,
+}
+
+apex {
+    name: "com.android.apex.compressed.v2_original",
+    manifest: "manifest_compressed_v2.json",
+    file_contexts: ":apex.test-file_contexts",
+    prebuilts: ["sample_prebuilt_file"],
+    key: "com.android.apex.compressed.key",
+    installable: false,
+    compressible: false,
 }
 
 apex {
