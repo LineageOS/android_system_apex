@@ -2695,8 +2695,43 @@ void RemoveInactiveDataApex() {
 
 }  // namespace
 
+// Decompressed APEX in |decompression_dir| that are no longer linked to
+// |apex_active_dir| should be removed
+void RemoveUnlinkedDecompressedApex(
+    const std::string& decompression_dir = kApexDecompressedDir,
+    const std::string& apex_active_dir = kActiveApexPackagesDataDir) {
+  auto decompressed_files = ReadDir(decompression_dir, [](auto _) {
+    (void)_;
+    return true;
+  });
+  if (!decompressed_files.ok()) {
+    return;
+  }
+
+  namespace fs = std::filesystem;
+  for (const std::string& decompressed_file : *decompressed_files) {
+    // Check if this file is still hard linked to one of the files in
+    // apex_active_dir
+    const std::string filename = fs::path(decompressed_file).filename();
+    const std::string active_copy_path =
+        StringPrintf("%s/%s", apex_active_dir.c_str(), filename.c_str());
+    std::error_code ec;
+    const bool hard_link_exists =
+        fs::equivalent(decompressed_file, active_copy_path, ec);
+    if (ec || !hard_link_exists) {
+      LOG(INFO) << "Cleaning up unused decompressed APEX file: "
+                << decompressed_file;
+      if (unlink(decompressed_file.c_str()) != 0) {
+        PLOG(ERROR) << "Failed to delete unused decompressed APEX file: "
+                    << decompressed_file;
+      }
+    }
+  }
+}
+
 void BootCompletedCleanup() {
   RemoveInactiveDataApex();
+  RemoveUnlinkedDecompressedApex();
   ApexSession::DeleteFinalizedSessions();
 }
 

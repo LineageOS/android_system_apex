@@ -1,5 +1,9 @@
 // List of clang-tidy checks that are reported as errors.
 // Please keep this list ordered lexicographically.
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 tidy_errors = [
   "android-*",
   "bugprone-infinite-loop",

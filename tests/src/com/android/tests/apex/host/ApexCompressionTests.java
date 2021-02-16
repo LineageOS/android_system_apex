@@ -196,4 +196,40 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
         files = getFilesInDir(APEX_ACTIVE_DIR);
         assertThat(files).contains(COMPRESSED_APEX_PACKAGE_NAME + "@2.apex");
     }
+
+    @Test
+    @LargeTest
+    public void testUnusedDecompressedApexIsCleanedUp_HigherVersion() throws Exception {
+        // Install v1 on /system partition
+        pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
+        // Ensure that compressed APEX was decompressed in DECOMPRESSED_DIR_PATH
+        List<String> files = getFilesInDir(DECOMPRESSED_DIR_PATH);
+        assertThat(files).contains(COMPRESSED_APEX_PACKAGE_NAME + "@1.apex");
+
+        // Now install an update for that APEX so that decompressed APEX becomes redundant
+        runPhase("testUnusedDecompressedApexIsCleanedUp_HigherVersion");
+        getDevice().reboot();
+
+        // Verify that DECOMPRESSED_DIR_PATH is now empty
+        files = getFilesInDir(DECOMPRESSED_DIR_PATH);
+        assertThat(files).isEmpty();
+    }
+
+    @Test
+    @LargeTest
+    public void testUnusedDecompressedApexIsCleanedUp_SameVersion() throws Exception {
+        // Install v1 on /system partition
+        pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
+        // Ensure that compressed APEX was decompressed in DECOMPRESSED_DIR_PATH
+        List<String> files = getFilesInDir(DECOMPRESSED_DIR_PATH);
+        assertThat(files).contains(COMPRESSED_APEX_PACKAGE_NAME + "@1.apex");
+
+        // Now install an update for that APEX so that decompressed APEX becomes redundant
+        runPhase("testUnusedDecompressedApexIsCleanedUp_SameVersion");
+        getDevice().reboot();
+
+        // Verify that DECOMPRESSED_DIR_PATH is now empty
+        files = getFilesInDir(DECOMPRESSED_DIR_PATH);
+        assertThat(files).isEmpty();
+    }
 }
