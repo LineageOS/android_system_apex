@@ -126,9 +126,9 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
 
     @Test
     @LargeTest
-    public void testCompressedApexCanBeQueried() throws Exception {
+    public void testDecompressedApexIsConsideredFactory() throws Exception {
         pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
-        runPhase("testCompressedApexCanBeQueried");
+        runPhase("testDecompressedApexIsConsideredFactory");
     }
 
     @Test
@@ -157,6 +157,22 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
         final byte[] activatedApexFileBytes =
                 Files.readAllBytes(Paths.get(activatedApexFile.toURI()));
         assertThat(activatedApexFileBytes).isEqualTo(originalApexFileBytes);
+    }
+
+    @Test
+    @LargeTest
+    public void testDecompressedApexSurvivesReboot() throws Exception {
+        pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
+
+        // Ensure that compressed APEX was activated in APEX_ACTIVE_DIR
+        List<String> files = getFilesInDir(APEX_ACTIVE_DIR);
+        assertThat(files).contains(COMPRESSED_APEX_PACKAGE_NAME + "@1.apex");
+
+        getDevice().reboot();
+
+        // Ensure it gets activated again on reboot
+        files = getFilesInDir(APEX_ACTIVE_DIR);
+        assertThat(files).contains(COMPRESSED_APEX_PACKAGE_NAME + "@1.apex");
     }
 
     @Test

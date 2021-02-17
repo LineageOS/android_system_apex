@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 
@@ -66,7 +67,7 @@ public class ApexCompressionTests {
     }
 
     @Test
-    public void testCompressedApexCanBeQueried() throws Exception {
+    public void testDecompressedApexIsConsideredFactory() throws Exception {
         // Only retrieve active apex package
         PackageInfo pi = mPm.getPackageInfo(
                 COMPRESSED_APEX_PACKAGE_NAME, PackageManager.MATCH_APEX);
@@ -74,6 +75,8 @@ public class ApexCompressionTests {
         assertThat(pi.isApex).isTrue();
         assertThat(pi.packageName).isEqualTo(COMPRESSED_APEX_PACKAGE_NAME);
         assertThat(pi.getLongVersionCode()).isEqualTo(1);
+        boolean isFactoryPackage = (pi.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+        assertThat(isFactoryPackage).isTrue();
     }
 
     @Test
