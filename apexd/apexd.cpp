@@ -1387,6 +1387,17 @@ std::unordered_map<std::string, uint64_t> GetActivePackagesMap() {
 
 std::vector<ApexFile> GetFactoryPackages() {
   std::vector<ApexFile> ret;
+
+  // Decompressed APEX is considered factory package
+  std::vector<std::string> decompressed_pkg_names;
+  auto active_pkgs = GetActivePackages();
+  for (ApexFile& apex : active_pkgs) {
+    if (ApexPreinstalledData::GetInstance().IsDecompressedApex(apex)) {
+      decompressed_pkg_names.push_back(apex.GetManifest().name());
+      ret.emplace_back(std::move(apex));
+    }
+  }
+
   for (const auto& dir : kApexPackageBuiltinDirs) {
     auto all_apex_files = FindFilesBySuffix(
         dir, {kApexPackageSuffix, kCompressedApexPackageSuffix});
@@ -1399,9 +1410,18 @@ std::vector<ApexFile> GetFactoryPackages() {
       Result<ApexFile> apex_file = ApexFile::Open(path);
       if (!apex_file.ok()) {
         LOG(ERROR) << apex_file.error();
-      } else {
-        ret.emplace_back(std::move(*apex_file));
+        continue;
       }
+      // Ignore compressed APEX if it has been decompressed already
+      if (apex_file->IsCompressed() &&
+          std::find(decompressed_pkg_names.begin(),
+                    decompressed_pkg_names.end(),
+                    apex_file->GetManifest().name()) !=
+              decompressed_pkg_names.end()) {
+        continue;
+      }
+
+      ret.emplace_back(std::move(*apex_file));
     }
   }
   return ret;
@@ -2337,6 +2357,8 @@ std::vector<ApexFile> SelectApexForActivation(
     }
 
     if (apex_files.size() == 1) {
+      LOG(DEBUG) << "Selecting the only APEX: " << package_name << " "
+                 << apex_files[0].GetPath();
       activation_list.emplace_back(std::move(apex_files[0]));
       continue;
     }
@@ -2354,8 +2376,13 @@ std::vector<ApexFile> SelectApexForActivation(
       const bool same_version_priority_to_data =
           a.GetManifest().version() == version_b &&
           !instance.IsPreInstalledApex(a);
+      // If A has same version as B and they are both pre-installed,
+      // then it means one of them is compressed. Choose decompressed copy.
+      const bool decompressed = instance.IsDecompressedApex(a);
       if (provides_shared_apex_libs || higher_version ||
-          same_version_priority_to_data) {
+          same_version_priority_to_data || decompressed) {
+        LOG(DEBUG) << "Selecting between two APEX: " << a.GetManifest().name()
+                   << " " << a.GetPath();
         activation_list.emplace_back(std::move(a));
       }
     };
@@ -2375,6 +2402,7 @@ std::vector<ApexFile> ProcessCompressedApex(
     std::vector<ApexFile>&& compressed_apex,
     const std::string& decompression_dir = kApexDecompressedDir,
     const std::string& active_apex_dir = kActiveApexPackagesDataDir) {
+  LOG(INFO) << "Processing compressed APEX";
   std::vector<ApexFile> decompressed_apex_list;
   for (const ApexFile& apex_file : compressed_apex) {
     if (!apex_file.IsCompressed()) {
@@ -2685,7 +2713,7 @@ void RemoveInactiveDataApex() {
   }
   for (const auto& path : *data_apexes) {
     if (!apexd_private::IsMounted(path)) {
-      LOG(DEBUG) << "Removing inactive data APEX " << path;
+      LOG(INFO) << "Removing inactive data APEX " << path;
       if (unlink(path.c_str()) != 0) {
         PLOG(ERROR) << "Failed to unlink inactive data APEX " << path;
       }
