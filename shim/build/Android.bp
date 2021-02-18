@@ -62,6 +62,7 @@ apex {
   apps: ["CtsShim", "CtsShimPriv"],
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
+  updatable: false,
 }
 
 apex {
@@ -74,6 +75,7 @@ apex {
   apps: ["CtsShim", "CtsShimPriv"],
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
+  updatable: false,
 }
 
 apex {
@@ -85,6 +87,7 @@ apex {
   prebuilts: ["hash_of_dev_null"],
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
+  updatable: false,
 }
 
 apex {
@@ -98,6 +101,7 @@ apex {
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
   test_only_no_hashtree: true,
+  updatable: false,
 }
 
 apex {
@@ -111,6 +115,7 @@ apex {
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
   test_only_unsigned_payload: true,
+  updatable: false,
 }
 
 override_apex {
@@ -142,6 +147,7 @@ apex {
   key: "com.android.apex.cts.shim.key",
   prebuilts: ["empty_hash"],
   installable: false,
+  updatable: false,
 }
 
 prebuilt_etc {
@@ -159,6 +165,7 @@ apex {
   key: "com.android.apex.cts.shim.key",
   prebuilts: ["hash_of_dev_null", "apex_shim_additional_file"],
   installable: false,
+  updatable: false,
 }
 
 prebuilt_etc {
@@ -177,6 +184,7 @@ apex {
   key: "com.android.apex.cts.shim.key",
   prebuilts: ["hash_of_dev_null", "apex_shim_additional_folder"],
   installable: false,
+  updatable: false,
 }
 
 apex {
@@ -187,6 +195,7 @@ apex {
   key: "com.android.apex.cts.shim.key",
   prebuilts: ["hash_of_dev_null"],
   installable: false,
+  updatable: false,
 }
 
 apex {
@@ -197,6 +206,7 @@ apex {
   key: "com.android.apex.cts.shim.key",
   prebuilts: ["hash_of_dev_null"],
   installable: false,
+  updatable: false,
 }
 
 genrule {
@@ -240,6 +250,7 @@ apex {
   prebuilts: ["hash_v1"],
   apps: ["CtsShim", "CtsShimPriv"],
   allowed_files: "default_shim_allowed_list.txt",
+  updatable: false,
 }
 
 // This is to install the flattened version of com.android.apex.cts.shim.
@@ -284,6 +295,7 @@ apex {
   key: "com.android.apex.cts.shim_not_pre_installed.key",
   prebuilts: ["hash_of_dev_null"],
   installable: false,
+  updatable: false,
 }
 
 apex {
@@ -295,6 +307,7 @@ apex {
   prebuilts: ["hash_of_dev_null"],
   installable: false,
   certificate: ":com.android.apex.cts.shim.debug.cert",
+  updatable: false,
 }
 
 android_app_certificate {
@@ -459,6 +472,7 @@ apex {
   apps: ["CtsShim", "CtsShimPriv"],
   installable: false,
   min_sdk_version: "29",
+  updatable: false,
 }
 
 genrule {
@@ -479,6 +493,7 @@ apex {
   prebuilts: ["hash_of_dev_null"],
   installable: false,
   apps: ["CtsShim", "CtsShimPriv"],
+  updatable: false,
 }
 
 // Apex shim with apk-in-apex that targets sdk P
@@ -491,6 +506,7 @@ apex {
   prebuilts: ["hash_of_dev_null"],
   apps: ["CtsShimTargetPSdk"],
   installable: false,
+  updatable: false,
 }
 
 // Apex shim with unsigned apk

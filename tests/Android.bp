@@ -91,6 +91,7 @@ apex {
     key: "apex.test.key",
     certificate: ":apex.test.certificate",
     installable: false,
+    updatable: false,
 }
 
 apex_key {
