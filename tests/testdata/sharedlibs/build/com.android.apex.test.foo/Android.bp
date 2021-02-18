@@ -36,6 +36,7 @@ apex {
     dist: {
         targets: ["sharedlibs_test"],
     },
+    updatable: false,
 }
 
 cc_binary {
