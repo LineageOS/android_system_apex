@@ -20,27 +20,27 @@ tidy_errors = [
   "bugprone-unused-raii",
   "cert-err34-c",
   "google-default-arguments",
-  "google-explicit-constructor",
+  // "google-explicit-constructor", // found in com_android_apex.h
   "google-readability-avoid-underscore-in-googletest-name",
   "google-readability-todo",
   "google-runtime-int",
   "google-runtime-member-string-references",
   "misc-move-const-arg",
   "misc-move-forwarding-reference",
-  "misc-unused-parameters",
+  // "misc-unused-parameters", // found in apexd_utils.h
   "misc-unused-using-decls",
   "misc-use-after-move",
-  "modernize-pass-by-value",
+  // "modernize-pass-by-value", // found in apex_database.h
   "performance-faster-string-find",
   "performance-for-range-copy",
   "performance-implicit-conversion-in-loop",
   "performance-inefficient-vector-operation",
   "performance-move-const-arg",
-  "performance-move-constructor-init",
+  // "performance-move-constructor-init", // found in apexd_loop.h
   "performance-noexcept-move-constructor",
   "performance-unnecessary-copy-initialization",
   "performance-unnecessary-value-param",
-  "readability-avoid-const-params-in-decls",
+  // "readability-avoid-const-params-in-decls", // found in apexd.h
 ]
 
 cc_defaults {
@@ -68,8 +68,8 @@ cc_defaults {
   tidy_checks: tidy_errors,
   tidy_checks_as_errors: tidy_errors,
   tidy_flags: [
-    "-format-style='file'",
-    "--header-filter='system/apex/'",
+    "-format-style=file",
+    "-header-filter=system/apex/",
   ],
 }
 
