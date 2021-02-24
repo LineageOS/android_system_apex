@@ -104,6 +104,9 @@ class ApexService : public BnApexService {
   BinderStatus recollectPreinstalledData(
       const std::vector<std::string>& paths) override;
   BinderStatus markBootCompleted() override;
+  BinderStatus calculateSizeForCompressedApex(
+      const CompressedApexInfoList& compressed_apex_info_list,
+      int64_t* required_size) override;
 
   status_t dump(int fd, const Vector<String16>& args) override;
 
@@ -216,6 +219,17 @@ BinderStatus ApexService::markStagedSessionSuccessful(int session_id) {
 
 BinderStatus ApexService::markBootCompleted() {
   ::android::apex::OnBootCompleted();
+  return BinderStatus::ok();
+}
+
+BinderStatus ApexService::calculateSizeForCompressedApex(
+    const CompressedApexInfoList& compressed_apex_info_list,
+    int64_t* required_size) {
+  int64_t result = 0;
+  for (const auto& apex_info : compressed_apex_info_list.apexInfos) {
+    result += apex_info.decompressedSize;
+  }
+  *required_size = result;
   return BinderStatus::ok();
 }
 
