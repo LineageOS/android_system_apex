@@ -102,6 +102,8 @@ aidl_interface {
     "aidl/android/apex/ApexInfoList.aidl",
     "aidl/android/apex/ApexSessionInfo.aidl",
     "aidl/android/apex/ApexSessionParams.aidl",
+    "aidl/android/apex/CompressedApexInfo.aidl",
+    "aidl/android/apex/CompressedApexInfoList.aidl",
     "aidl/android/apex/IApexService.aidl",
   ],
   local_include_dir: "aidl",
