@@ -228,8 +228,8 @@ cc_library_static {
   ],
   srcs: [
     "apex_file.cpp",
+    "apex_file_repository.cpp",
     "apex_manifest.cpp",
-    "apex_preinstalled_data.cpp",
     "apex_shim.cpp",
   ],
   host_supported: true,
@@ -392,6 +392,7 @@ cc_test {
     ":com.android.apex.cts.shim.v2_additional_folder_prebuilt",
     ":com.android.apex.cts.shim.v2_with_pre_install_hook_prebuilt",
     ":com.android.apex.cts.shim.v2_with_post_install_hook_prebuilt",
+    ":com.android.apex.compressed_sharedlibs",
     ":com.android.apex.compressed.v1",
     ":com.android.apex.compressed.v1_original",
     "apexd_testdata/com.android.apex.test_package.avbpubkey",
@@ -402,8 +403,8 @@ cc_test {
   srcs: [
     "apex_database_test.cpp",
     "apex_file_test.cpp",
+    "apex_file_repository_test.cpp",
     "apex_manifest_test.cpp",
-    "apex_preinstalled_data_test.cpp",
     "apexd_test.cpp",
     "apexd_session_test.cpp",
     "apexd_verity_test.cpp",

@@ -26,7 +26,7 @@
 #include "apex_constants.h"
 #include "apex_database.h"
 #include "apex_file.h"
-#include "apex_preinstalled_data.h"
+#include "apex_file_repository.h"
 
 namespace android {
 namespace apex {
@@ -112,7 +112,7 @@ std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
 // as a list
 std::vector<ApexFile> SelectApexForActivation(
     std::unordered_map<std::string, std::vector<ApexFile>>&& all_apex,
-    const ApexPreinstalledData& instance);
+    const ApexFileRepository& instance);
 std::vector<ApexFile> ProcessCompressedApex(
     std::vector<ApexFile>&& compressed_apex,
     const std::string& decompression_dir, const std::string& active_apex_dir);

@@ -27,23 +27,24 @@
 namespace android {
 namespace apex {
 
-// This class encapsulates pre-installed data for all the apexes on device.
-// This data can be used to verify validity of an apex before trying to mount
-// it.
+// This class serves as a ApexFile repository for all apexes on device. It also
+// provides information about the ApexFiles it hosts, such as which are
+// pre-installed and which are data. Such information can be used, for example,
+// to verify validity of an apex before trying to mount it.
 //
 // It's expected to have a single instance of this class in a process that
 // mounts apexes (e.g. apexd, otapreopt_chroot).
-class ApexPreinstalledData final {
+class ApexFileRepository final {
  public:
   // c-tor and d-tor are exposed for testing.
-  ApexPreinstalledData(
+  ApexFileRepository(
       const std::string& decompression_dir = kApexDecompressedDir)
       : decompression_dir_(decompression_dir){};
 
-  ~ApexPreinstalledData() { data_.clear(); };
+  ~ApexFileRepository() { data_.clear(); };
 
   // Returns a singletone instance of this class.
-  static ApexPreinstalledData& GetInstance();
+  static ApexFileRepository& GetInstance();
 
   // Initializes instance by collecting pre-installed data from the given
   // |dirs|.
@@ -72,10 +73,10 @@ class ApexPreinstalledData final {
 
  private:
   // Non-copyable && non-moveable.
-  ApexPreinstalledData(const ApexPreinstalledData&) = delete;
-  ApexPreinstalledData& operator=(const ApexPreinstalledData&) = delete;
-  ApexPreinstalledData& operator=(ApexPreinstalledData&&) = delete;
-  ApexPreinstalledData(ApexPreinstalledData&&) = delete;
+  ApexFileRepository(const ApexFileRepository&) = delete;
+  ApexFileRepository& operator=(const ApexFileRepository&) = delete;
+  ApexFileRepository& operator=(ApexFileRepository&&) = delete;
+  ApexFileRepository(ApexFileRepository&&) = delete;
 
   // Scans apexes in the given directory and adds collected data into |data_|.
   android::base::Result<void> ScanDir(const std::string& dir);
