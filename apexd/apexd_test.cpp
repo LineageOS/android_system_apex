@@ -22,7 +22,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "apex_preinstalled_data.h"
+#include "apex_file_repository.h"
 #include "apexd.h"
 #include "apexd_test_utils.h"
 #include "apexd_utils.h"
@@ -87,7 +87,7 @@ TEST(ApexdUnitTest, ApexMustHavePreInstalledVersionForSelection) {
       built_in_dir.path);
 
   // Pre-installed information is not initialized
-  ApexPreinstalledData instance;
+  ApexFileRepository instance;
   std::vector<std::string> dirs_to_scan{built_in_dir.path};
   auto all_apex = ScanAndGroupApexFiles(dirs_to_scan);
   auto result = SelectApexForActivation(std::move(all_apex), instance);
@@ -117,7 +117,7 @@ TEST(ApexdUnitTest, HigherVersionOfApexIsSelected) {
   fs::copy(GetTestFile("com.android.apex.cts.shim.apex"), built_in_dir.path);
 
   // Initialize pre-installed APEX information
-  ApexPreinstalledData instance;
+  ApexFileRepository instance;
   ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
 
   TemporaryDir data_dir;
@@ -145,7 +145,7 @@ TEST(ApexdUnitTest, DataApexGetsPriorityForSameVersions) {
   fs::copy(GetTestFile("com.android.apex.cts.shim.apex"), built_in_dir.path);
 
   // Initialize pre-installed APEX information
-  ApexPreinstalledData instance;
+  ApexFileRepository instance;
   ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
 
   TemporaryDir data_dir;
@@ -173,7 +173,7 @@ TEST(ApexdUnitTest, SharedLibsCanHaveBothVersionSelected) {
       built_in_dir.path);
 
   // Initialize pre-installed APEX information
-  ApexPreinstalledData instance;
+  ApexFileRepository instance;
   ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
 
   TemporaryDir data_dir;

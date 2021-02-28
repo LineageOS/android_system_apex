@@ -16,7 +16,7 @@
 
 #define LOG_TAG "apexd"
 
-#include "apex_preinstalled_data.h"
+#include "apex_file_repository.h"
 
 #include <unordered_map>
 
@@ -38,7 +38,7 @@ using android::base::StringPrintf;
 namespace android {
 namespace apex {
 
-Result<void> ApexPreinstalledData::ScanDir(const std::string& dir) {
+Result<void> ApexFileRepository::ScanDir(const std::string& dir) {
   LOG(INFO) << "Scanning " << dir << " for preinstalled data";
   if (access(dir.c_str(), F_OK) != 0 && errno == ENOENT) {
     LOG(INFO) << dir << " does not exist. Skipping";
@@ -85,12 +85,12 @@ Result<void> ApexPreinstalledData::ScanDir(const std::string& dir) {
   return {};
 }
 
-ApexPreinstalledData& ApexPreinstalledData::GetInstance() {
-  static ApexPreinstalledData instance;
+ApexFileRepository& ApexFileRepository::GetInstance() {
+  static ApexFileRepository instance;
   return instance;
 }
 
-Result<void> ApexPreinstalledData::Initialize(
+Result<void> ApexFileRepository::Initialize(
     const std::vector<std::string>& dirs) {
   for (const auto& dir : dirs) {
     if (auto result = ScanDir(dir); !result.ok()) {
@@ -100,7 +100,7 @@ Result<void> ApexPreinstalledData::Initialize(
   return {};
 }
 
-Result<const std::string> ApexPreinstalledData::GetPublicKey(
+Result<const std::string> ApexFileRepository::GetPublicKey(
     const std::string& name) const {
   auto it = data_.find(name);
   if (it == data_.end()) {
@@ -109,7 +109,7 @@ Result<const std::string> ApexPreinstalledData::GetPublicKey(
   return it->second.public_key;
 }
 
-Result<const std::string> ApexPreinstalledData::GetPreinstalledPath(
+Result<const std::string> ApexFileRepository::GetPreinstalledPath(
     const std::string& name) const {
   auto it = data_.find(name);
   if (it == data_.end()) {
@@ -118,14 +118,13 @@ Result<const std::string> ApexPreinstalledData::GetPreinstalledPath(
   return it->second.path;
 }
 
-bool ApexPreinstalledData::HasPreInstalledVersion(
-    const std::string& name) const {
+bool ApexFileRepository::HasPreInstalledVersion(const std::string& name) const {
   return data_.find(name) != data_.end();
 }
 
 // ApexFile is considered a decompressed APEX if it is a hard link of file in
 // |decompression_dir_| with same filename
-bool ApexPreinstalledData::IsDecompressedApex(const ApexFile& apex) const {
+bool ApexFileRepository::IsDecompressedApex(const ApexFile& apex) const {
   namespace fs = std::filesystem;
   const std::string filename = fs::path(apex.GetPath()).filename();
   const std::string decompressed_path =
@@ -136,7 +135,7 @@ bool ApexPreinstalledData::IsDecompressedApex(const ApexFile& apex) const {
   return !ec && hard_link_exists;
 }
 
-bool ApexPreinstalledData::IsPreInstalledApex(const ApexFile& apex) const {
+bool ApexFileRepository::IsPreInstalledApex(const ApexFile& apex) const {
   auto it = data_.find(apex.GetManifest().name());
   if (it == data_.end()) {
     return false;

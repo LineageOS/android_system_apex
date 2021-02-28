@@ -21,7 +21,6 @@
 #include "apex_database.h"
 #include "apex_file.h"
 #include "apex_manifest.h"
-#include "apex_preinstalled_data.h"
 #include "apex_shim.h"
 #include "apexd_checkpoint.h"
 #include "apexd_lifecycle.h"
@@ -432,7 +431,7 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
   }
   LOG(VERBOSE) << "Loopback device created: " << loopback_device.name;
 
-  auto& instance = ApexPreinstalledData::GetInstance();
+  auto& instance = ApexFileRepository::GetInstance();
 
   auto public_key = instance.GetPublicKey(apex.GetManifest().name());
   if (!public_key.ok()) {
@@ -729,7 +728,7 @@ Result<void> ValidateStagingShimApex(const ApexFile& to) {
 // each boot. Try to avoid putting expensive checks inside this function.
 Result<void> VerifyPackageBoot(const ApexFile& apex_file) {
   // TODO(ioffe): why do we need this here?
-  auto& instance = ApexPreinstalledData::GetInstance();
+  auto& instance = ApexFileRepository::GetInstance();
   auto public_key = instance.GetPublicKey(apex_file.GetManifest().name());
   if (!public_key.ok()) {
     return public_key.error();
@@ -1301,7 +1300,7 @@ Result<void> EmitApexInfoList(bool is_bootstrap) {
 
   auto convert_to_autogen = [&apex_infos](const ApexFile& apex,
                                           bool is_active) {
-    auto& instance = ApexPreinstalledData::GetInstance();
+    auto& instance = ApexFileRepository::GetInstance();
 
     auto preinstalled_path =
         instance.GetPreinstalledPath(apex.GetManifest().name());
@@ -1391,7 +1390,7 @@ std::vector<ApexFile> GetFactoryPackages() {
   std::vector<std::string> decompressed_pkg_names;
   auto active_pkgs = GetActivePackages();
   for (ApexFile& apex : active_pkgs) {
-    if (ApexPreinstalledData::GetInstance().IsDecompressedApex(apex)) {
+    if (ApexFileRepository::GetInstance().IsDecompressedApex(apex)) {
       decompressed_pkg_names.push_back(apex.GetManifest().name());
       ret.emplace_back(std::move(apex));
     }
@@ -2072,7 +2071,7 @@ Result<void> UnstagePackages(const std::vector<std::string>& paths) {
     if (!apex.ok()) {
       return apex.error();
     }
-    if (ApexPreinstalledData::GetInstance().IsPreInstalledApex(*apex)) {
+    if (ApexFileRepository::GetInstance().IsPreInstalledApex(*apex)) {
       return Error() << "Can't uninstall pre-installed apex " << path;
     }
   }
@@ -2205,7 +2204,7 @@ int OnBootstrap() {
                << pre_allocate.error();
   }
 
-  ApexPreinstalledData& instance = ApexPreinstalledData::GetInstance();
+  ApexFileRepository& instance = ApexFileRepository::GetInstance();
   static const std::vector<std::string> kBootstrapApexDirs{
       kApexPackageSystemDir, kApexPackageSystemExtDir, kApexPackageVendorDir};
   Result<void> status = instance.Initialize(kBootstrapApexDirs);
@@ -2278,7 +2277,7 @@ void InitializeVold(CheckpointInterface* checkpoint_service) {
 
 void Initialize(CheckpointInterface* checkpoint_service) {
   InitializeVold(checkpoint_service);
-  ApexPreinstalledData& instance = ApexPreinstalledData::GetInstance();
+  ApexFileRepository& instance = ApexFileRepository::GetInstance();
   Result<void> status = instance.Initialize(kApexPackageBuiltinDirs);
   if (!status.ok()) {
     LOG(ERROR) << "Failed to collect APEX keys : " << status.error();
@@ -2333,7 +2332,7 @@ std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
  */
 std::vector<ApexFile> SelectApexForActivation(
     std::unordered_map<std::string, std::vector<ApexFile>>&& all_apex,
-    const ApexPreinstalledData& instance) {
+    const ApexFileRepository& instance) {
   LOG(INFO) << "Selecting APEX for activation";
   std::vector<ApexFile> activation_list;
   // For every package X, select which APEX to activate
@@ -2512,7 +2511,7 @@ void OnStart() {
       ScanAndGroupApexFiles(dirs_to_scan);
   // There can be multiple APEX packages with package name X. Determine which
   // one to activate.
-  const auto& instance = ApexPreinstalledData::GetInstance();
+  const auto& instance = ApexFileRepository::GetInstance();
   std::vector<ApexFile> activation_list =
       SelectApexForActivation(std::move(all_apex), instance);
 
@@ -2534,7 +2533,7 @@ void OnStart() {
 
   int data_apex_cnt = std::count_if(
       activation_list.begin(), activation_list.end(), [](const ApexFile& a) {
-        return !ApexPreinstalledData::GetInstance().IsPreInstalledApex(a);
+        return !ApexFileRepository::GetInstance().IsPreInstalledApex(a);
       });
   if (data_apex_cnt > 0) {
     Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex_cnt);

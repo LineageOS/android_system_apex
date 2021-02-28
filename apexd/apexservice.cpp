@@ -36,7 +36,7 @@
 #include <utils/String16.h>
 
 #include "apex_file.h"
-#include "apex_preinstalled_data.h"
+#include "apex_file_repository.h"
 #include "apexd.h"
 #include "apexd_session.h"
 #include "string_log.h"
@@ -287,7 +287,7 @@ void ConvertToApexSessionInfo(const ApexSession& session,
 }
 
 static ApexInfo GetApexInfo(const ApexFile& package) {
-  auto& instance = ApexPreinstalledData::GetInstance();
+  auto& instance = ApexFileRepository::GetInstance();
   ApexInfo out;
   out.moduleName = package.GetManifest().name();
   out.modulePath = package.GetPath();
@@ -592,7 +592,7 @@ BinderStatus ApexService::recollectPreinstalledData(
       !root.isOk()) {
     return root;
   }
-  ApexPreinstalledData& instance = ApexPreinstalledData::GetInstance();
+  ApexFileRepository& instance = ApexFileRepository::GetInstance();
   if (auto res = instance.Initialize(paths); !res.ok()) {
     return BinderStatus::fromExceptionCode(
         BinderStatus::EX_SERVICE_SPECIFIC,
