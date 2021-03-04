@@ -2207,7 +2207,7 @@ int OnBootstrap() {
   ApexFileRepository& instance = ApexFileRepository::GetInstance();
   static const std::vector<std::string> kBootstrapApexDirs{
       kApexPackageSystemDir, kApexPackageSystemExtDir, kApexPackageVendorDir};
-  Result<void> status = instance.Initialize(kBootstrapApexDirs);
+  Result<void> status = instance.AddPreInstalledApex(kBootstrapApexDirs);
   if (!status.ok()) {
     LOG(ERROR) << "Failed to collect APEX keys : " << status.error();
     return 1;
@@ -2278,9 +2278,15 @@ void InitializeVold(CheckpointInterface* checkpoint_service) {
 void Initialize(CheckpointInterface* checkpoint_service) {
   InitializeVold(checkpoint_service);
   ApexFileRepository& instance = ApexFileRepository::GetInstance();
-  Result<void> status = instance.Initialize(kApexPackageBuiltinDirs);
+  Result<void> status = instance.AddPreInstalledApex(kApexPackageBuiltinDirs);
   if (!status.ok()) {
-    LOG(ERROR) << "Failed to collect APEX keys : " << status.error();
+    LOG(ERROR) << "Failed to collect pre-installed APEX files : "
+               << status.error();
+    return;
+  }
+  status = instance.AddDataApex(kActiveApexPackagesDataDir);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to collect data APEX files : " << status.error();
     return;
   }
 

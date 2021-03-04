@@ -94,7 +94,7 @@ TEST(ApexdUnitTest, ApexMustHavePreInstalledVersionForSelection) {
   ASSERT_EQ(result.size(), 0u);
 
   // Once initialized, pre-installed APEX should get selected
-  ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
   all_apex = ScanAndGroupApexFiles(dirs_to_scan);
   result = SelectApexForActivation(std::move(all_apex), instance);
   ASSERT_EQ(result.size(), 3u);
@@ -118,7 +118,7 @@ TEST(ApexdUnitTest, HigherVersionOfApexIsSelected) {
 
   // Initialize pre-installed APEX information
   ApexFileRepository instance;
-  ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
 
   TemporaryDir data_dir;
   fs::copy(GetTestFile("apex.apexd_test.apex"), data_dir.path);
@@ -146,7 +146,7 @@ TEST(ApexdUnitTest, DataApexGetsPriorityForSameVersions) {
 
   // Initialize pre-installed APEX information
   ApexFileRepository instance;
-  ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
 
   TemporaryDir data_dir;
   fs::copy(GetTestFile("apex.apexd_test.apex"), data_dir.path);
@@ -174,7 +174,7 @@ TEST(ApexdUnitTest, SharedLibsCanHaveBothVersionSelected) {
 
   // Initialize pre-installed APEX information
   ApexFileRepository instance;
-  ASSERT_TRUE(IsOk(instance.Initialize({built_in_dir.path})));
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
 
   TemporaryDir data_dir;
   fs::copy(
