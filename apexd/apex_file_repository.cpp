@@ -51,6 +51,7 @@ Result<void> ApexFileRepository::ScanBuiltInDir(const std::string& dir) {
     return all_apex_files.error();
   }
 
+  // TODO(b/179248390): scan parallelly if possible
   for (const auto& file : *all_apex_files) {
     Result<ApexFile> apex_file = ApexFile::Open(file);
     if (!apex_file.ok()) {
@@ -113,10 +114,12 @@ Result<void> ApexFileRepository::AddDataApex(const std::string& data_dir) {
     return all_apex_files.error();
   }
 
+  // TODO(b/179248390): scan parallelly if possible
   for (const auto& file : *all_apex_files) {
     Result<ApexFile> apex_file = ApexFile::Open(file);
     if (!apex_file.ok()) {
-      return Error() << "Failed to open " << file << " : " << apex_file.error();
+      LOG(ERROR) << "Failed to open " << file << " : " << apex_file.error();
+      continue;
     }
 
     const std::string& name = apex_file->GetManifest().name();
@@ -199,7 +202,7 @@ bool ApexFileRepository::IsPreInstalledApex(const ApexFile& apex) const {
 }
 
 std::vector<std::reference_wrapper<const ApexFile>>
-ApexFileRepository::GetPreInstalledApexFiles() {
+ApexFileRepository::GetPreInstalledApexFiles() const {
   std::vector<std::reference_wrapper<const ApexFile>> result;
   for (const auto& it : pre_installed_store_) {
     result.emplace_back(std::cref(it.second));
@@ -208,11 +211,41 @@ ApexFileRepository::GetPreInstalledApexFiles() {
 }
 
 std::vector<std::reference_wrapper<const ApexFile>>
-ApexFileRepository::GetDataApexFiles() {
+ApexFileRepository::GetDataApexFiles() const {
   std::vector<std::reference_wrapper<const ApexFile>> result;
   for (const auto& it : data_store_) {
     result.emplace_back(std::cref(it.second));
   }
+  return std::move(result);
+}
+
+// Group pre-installed APEX and data APEX by name
+std::unordered_map<std::string,
+                   std::vector<std::reference_wrapper<const ApexFile>>>
+ApexFileRepository::AllApexFilesByName() const {
+  // Collect all apex files
+  std::vector<std::reference_wrapper<const ApexFile>> all_apex_files;
+  auto pre_installed_apexs = GetPreInstalledApexFiles();
+  auto data_apexs = GetDataApexFiles();
+  std::move(pre_installed_apexs.begin(), pre_installed_apexs.end(),
+            std::back_inserter(all_apex_files));
+  std::move(data_apexs.begin(), data_apexs.end(),
+            std::back_inserter(all_apex_files));
+
+  // Group them by name
+  std::unordered_map<std::string,
+                     std::vector<std::reference_wrapper<const ApexFile>>>
+      result;
+  for (const auto& apex_file_ref : all_apex_files) {
+    const ApexFile& apex_file = apex_file_ref.get();
+    const std::string& package_name = apex_file.GetManifest().name();
+    if (result.find(package_name) == result.end()) {
+      result[package_name] =
+          std::vector<std::reference_wrapper<const ApexFile>>{};
+    }
+    result[package_name].emplace_back(apex_file_ref);
+  }
+
   return std::move(result);
 }
 

@@ -420,5 +420,40 @@ TEST(ApexFileRepositoryTest, GetPreInstalledApexFiles) {
                                    ApexFileEq(ByRef(*pre_apex_2))));
 }
 
+TEST(ApexdUnitTest, AllApexFilesByName) {
+  TemporaryDir built_in_dir;
+  fs::copy(GetTestFile("apex.apexd_test.apex"), built_in_dir.path);
+  fs::copy(GetTestFile("com.android.apex.cts.shim.apex"), built_in_dir.path);
+  fs::copy(GetTestFile("com.android.apex.compressed.v1.capex"),
+           built_in_dir.path);
+  ApexFileRepository instance;
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
+
+  TemporaryDir data_dir;
+  fs::copy(GetTestFile("com.android.apex.cts.shim.v2.apex"), data_dir.path);
+  ASSERT_TRUE(IsOk(instance.AddDataApex(data_dir.path)));
+
+  auto result = instance.AllApexFilesByName();
+
+  // Verify the contents of result
+  auto apexd_test_file = ApexFile::Open(
+      StringPrintf("%s/apex.apexd_test.apex", built_in_dir.path));
+  auto shim_v1 = ApexFile::Open(
+      StringPrintf("%s/com.android.apex.cts.shim.apex", built_in_dir.path));
+  auto compressed_apex = ApexFile::Open(StringPrintf(
+      "%s/com.android.apex.compressed.v1.capex", built_in_dir.path));
+  auto shim_v2 = ApexFile::Open(
+      StringPrintf("%s/com.android.apex.cts.shim.v2.apex", data_dir.path));
+
+  ASSERT_EQ(result.size(), 3u);
+  ASSERT_THAT(result[apexd_test_file->GetManifest().name()],
+              UnorderedElementsAre(ApexFileEq(ByRef(*apexd_test_file))));
+  ASSERT_THAT(result[shim_v1->GetManifest().name()],
+              UnorderedElementsAre(ApexFileEq(ByRef(*shim_v1)),
+                                   ApexFileEq(ByRef(*shim_v2))));
+  ASSERT_THAT(result[compressed_apex->GetManifest().name()],
+              UnorderedElementsAre(ApexFileEq(ByRef(*compressed_apex))));
+}
+
 }  // namespace apex
 }  // namespace android

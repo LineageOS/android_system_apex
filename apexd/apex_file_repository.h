@@ -83,11 +83,16 @@ class ApexFileRepository final {
   bool IsDecompressedApex(const ApexFile& apex) const;
 
   // Returns reference to all pre-installed APEX on device
-  std::vector<std::reference_wrapper<const ApexFile>>
-  GetPreInstalledApexFiles();
+  std::vector<std::reference_wrapper<const ApexFile>> GetPreInstalledApexFiles()
+      const;
 
   // Returns reference to all data APEX on device
-  std::vector<std::reference_wrapper<const ApexFile>> GetDataApexFiles();
+  std::vector<std::reference_wrapper<const ApexFile>> GetDataApexFiles() const;
+
+  // Group all ApexFiles on device by their package name
+  std::unordered_map<std::string,
+                     std::vector<std::reference_wrapper<const ApexFile>>>
+  AllApexFilesByName() const;
 
  private:
   // Non-copyable && non-moveable.
