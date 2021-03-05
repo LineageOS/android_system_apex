@@ -61,6 +61,7 @@
 #include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <algorithm>
 
 #include <algorithm>
 #include <array>
@@ -1458,6 +1459,7 @@ Result<void> AbortStagedSession(int session_id) {
 
 namespace {
 
+// TODO(b/179497746): Avoid scanning apex directly here
 Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir,
                                             bool include_compressed = false) {
   LOG(INFO) << "Scanning " << apex_package_dir << " looking for APEX packages.";
@@ -1512,13 +1514,14 @@ std::vector<Result<void>> ActivateApexWorker(
   return ret;
 }
 
-Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
+Result<void> ActivateApexPackages(
+    const std::vector<std::reference_wrapper<const ApexFile>>& apexes) {
   const auto& packages_with_code = GetActivePackagesMap();
   size_t skipped_cnt = 0;
   std::queue<const ApexFile*> apex_queue;
   std::mutex apex_queue_mutex;
 
-  for (const auto& apex : apexes) {
+  for (const ApexFile& apex : apexes) {
     if (!apex.GetManifest().providesharedapexlibs()) {
       uint64_t new_version =
           static_cast<uint64_t>(apex.GetManifest().version());
@@ -1578,12 +1581,16 @@ Result<void> ActivateApexPackages(const std::vector<ApexFile>& apexes) {
 
 }  // namespace
 
+// TODO(b/179497746): Avoid scanning APEX here
 Result<void> ScanPackagesDirAndActivate(const char* apex_package_dir) {
   auto apexes = ScanApexFiles(apex_package_dir);
   if (!apexes.ok()) {
     return apexes.error();
   }
-  return ActivateApexPackages(*apexes);
+  std::vector<std::reference_wrapper<const ApexFile>> apexes_ref;
+  std::transform(apexes->begin(), apexes->end(), std::back_inserter(apexes_ref),
+                 [](const auto& x) { return std::cref(x); });
+  return ActivateApexPackages(apexes_ref);
 }
 
 /**
@@ -1831,6 +1838,7 @@ void OnBootCompleted() {
   BootCompletedCleanup();
 }
 
+// Returns true if any session gets staged
 void ScanStagedSessionsDirAndStage() {
   LOG(INFO) << "Scanning " << ApexSession::GetSessionsDir()
             << " looking for sessions to be activated.";
@@ -2235,7 +2243,11 @@ int OnBootstrap() {
   }
 
   // Now activate bootstrap apexes.
-  if (auto ret = ActivateApexPackages(bootstrap_apexes); !ret.ok()) {
+  std::vector<std::reference_wrapper<const ApexFile>> bootstrap_apexes_ref;
+  std::transform(bootstrap_apexes.begin(), bootstrap_apexes.end(),
+                 std::back_inserter(bootstrap_apexes_ref),
+                 [](const auto& x) { return std::cref(x); });
+  if (auto ret = ActivateApexPackages(bootstrap_apexes_ref); !ret.ok()) {
     LOG(ERROR) << "Failed to activate bootstrap apex files : " << ret.error();
     return 1;
   }
@@ -2284,41 +2296,7 @@ void Initialize(CheckpointInterface* checkpoint_service) {
                << status.error();
     return;
   }
-  status = instance.AddDataApex(kActiveApexPackagesDataDir);
-  if (!status.ok()) {
-    LOG(ERROR) << "Failed to collect data APEX files : " << status.error();
-    return;
-  }
-
   gMountedApexes.PopulateFromMounts();
-}
-
-// Scans all APEX in the given directories and groups them by their package name
-std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
-    const std::vector<std::string>& dirs_to_scan) {
-  LOG(INFO) << "Scanning all apex";
-  std::unordered_map<std::string, std::vector<ApexFile>> result;
-
-  // TODO(b/179248390): scan parallelly if possible
-  for (const auto& dir : dirs_to_scan) {
-    auto scan_status = ScanApexFiles(dir.c_str(), true /*include_compressed*/);
-    if (scan_status.ok()) {
-      for (ApexFile& apex_file : *scan_status) {
-        const std::string& package_name = apex_file.GetManifest().name();
-        if (result.find(package_name) == result.end()) {
-          result[package_name] = std::vector<ApexFile>{};
-        }
-        result[package_name].emplace_back(std::move(apex_file));
-      }
-    } else {
-      LOG(ERROR) << "Failed to scan APEX packages from " << dir << " : "
-                 << scan_status.error();
-      if (auto revert = RevertActiveSessionsAndReboot(""); !revert.ok()) {
-        LOG(ERROR) << "Failed to revert : " << revert.error();
-      }
-    }
-  }
-  return result;
 }
 
 /**
@@ -2336,15 +2314,18 @@ std::unordered_map<std::string, std::vector<ApexFile>> ScanAndGroupApexFiles(
  * @param all_apex all the APEX grouped by their package name
  * @return list of ApexFile that needs to be activated
  */
-std::vector<ApexFile> SelectApexForActivation(
-    std::unordered_map<std::string, std::vector<ApexFile>>&& all_apex,
+std::vector<std::reference_wrapper<const ApexFile>> SelectApexForActivation(
+    const std::unordered_map<
+        std::string, std::vector<std::reference_wrapper<const ApexFile>>>&
+        all_apex,
     const ApexFileRepository& instance) {
   LOG(INFO) << "Selecting APEX for activation";
-  std::vector<ApexFile> activation_list;
+  std::vector<std::reference_wrapper<const ApexFile>> activation_list;
   // For every package X, select which APEX to activate
   for (auto& apex_it : all_apex) {
     const std::string& package_name = apex_it.first;
-    std::vector<ApexFile> apex_files = std::move(apex_it.second);
+    const std::vector<std::reference_wrapper<const ApexFile>>& apex_files =
+        apex_it.second;
 
     if (apex_files.size() > 2 || apex_files.size() == 0) {
       LOG(FATAL) << "Unexpectedly found more than two versions or none for "
@@ -2362,15 +2343,20 @@ std::vector<ApexFile> SelectApexForActivation(
 
     if (apex_files.size() == 1) {
       LOG(DEBUG) << "Selecting the only APEX: " << package_name << " "
-                 << apex_files[0].GetPath();
-      activation_list.emplace_back(std::move(apex_files[0]));
+                 << apex_files[0].get().GetPath();
+      activation_list.emplace_back(apex_files[0]);
       continue;
     }
+
+    // TODO(b/179497746): Now that we are dealing with list of reference, this
+    //  selection process can be simplified by sorting the vector.
 
     // Given an APEX A and the version of the other APEX B, should we activate
     // it?
     auto select_apex = [&instance, &activation_list](
-                           ApexFile&& a, const int version_b) mutable {
+                           const std::reference_wrapper<const ApexFile>& a_ref,
+                           const int version_b) mutable {
+      const ApexFile& a = a_ref.get();
       // APEX that provides shared library always gets activated
       const bool provides_shared_apex_libs =
           a.GetManifest().providesharedapexlibs();
@@ -2387,13 +2373,13 @@ std::vector<ApexFile> SelectApexForActivation(
           same_version_priority_to_data || decompressed) {
         LOG(DEBUG) << "Selecting between two APEX: " << a.GetManifest().name()
                    << " " << a.GetPath();
-        activation_list.emplace_back(std::move(a));
+        activation_list.emplace_back(a_ref);
       }
     };
-    const int version_0 = apex_files[0].GetManifest().version();
-    const int version_1 = apex_files[1].GetManifest().version();
-    select_apex(std::move(apex_files[0]), version_1);
-    select_apex(std::move(apex_files[1]), version_0);
+    const int version_0 = apex_files[0].get().GetManifest().version();
+    const int version_1 = apex_files[1].get().GetManifest().version();
+    select_apex(apex_files[0].get(), version_1);
+    select_apex(apex_files[1].get(), version_0);
   }
   return activation_list;
 }
@@ -2403,9 +2389,8 @@ std::vector<ApexFile> SelectApexForActivation(
  * link it to kActiveApexPackagesDataDir. Returns list of decompressed APEX.
  */
 std::vector<ApexFile> ProcessCompressedApex(
-    std::vector<ApexFile>&& compressed_apex,
-    const std::string& decompression_dir = kApexDecompressedDir,
-    const std::string& active_apex_dir = kActiveApexPackagesDataDir) {
+    const std::vector<std::reference_wrapper<const ApexFile>>& compressed_apex,
+    const std::string& decompression_dir, const std::string& active_apex_dir) {
   LOG(INFO) << "Processing compressed APEX";
   std::vector<ApexFile> decompressed_apex_list;
   for (const ApexFile& apex_file : compressed_apex) {
@@ -2505,41 +2490,45 @@ void OnStart() {
   // If there is any new apex to be installed on /data/app-staging, hardlink
   // them to /data/apex/active first.
   ScanStagedSessionsDirAndStage();
+  if (auto status = ApexFileRepository::GetInstance().AddDataApex(
+          kActiveApexPackagesDataDir);
+      !status.ok()) {
+    LOG(ERROR) << "Failed to collect data APEX files : " << status.error();
+  }
+
   auto status = ResumeRevertIfNeeded();
   if (!status.ok()) {
     LOG(ERROR) << "Failed to resume revert : " << status.error();
   }
 
-  // Scan every APEX on device
-  std::vector<std::string> dirs_to_scan = kApexPackageBuiltinDirs;
-  dirs_to_scan.push_back(kActiveApexPackagesDataDir);
-  std::unordered_map<std::string, std::vector<ApexFile>> all_apex =
-      ScanAndGroupApexFiles(dirs_to_scan);
+  // Group every ApexFile on device by name
+  const auto& instance = ApexFileRepository::GetInstance();
+  const auto& all_apex = instance.AllApexFilesByName();
   // There can be multiple APEX packages with package name X. Determine which
   // one to activate.
-  const auto& instance = ApexFileRepository::GetInstance();
-  std::vector<ApexFile> activation_list =
-      SelectApexForActivation(std::move(all_apex), instance);
+  auto activation_list = SelectApexForActivation(all_apex, instance);
 
   // Process compressed APEX, if any
-  std::vector<ApexFile> compressed_apex;
+  std::vector<std::reference_wrapper<const ApexFile>> compressed_apex;
   for (auto it = activation_list.begin(); it != activation_list.end();) {
-    if (it->IsCompressed()) {
-      compressed_apex.emplace_back(std::move(*it));
+    if (it->get().IsCompressed()) {
+      compressed_apex.emplace_back(*it);
       it = activation_list.erase(it);
     } else {
       it++;
     }
   }
+  std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    auto decompressed_apex = ProcessCompressedApex(std::move(compressed_apex));
-    std::move(decompressed_apex.begin(), decompressed_apex.end(),
-              std::back_inserter(activation_list));
+    decompressed_apex = ProcessCompressedApex(compressed_apex);
+    for (const ApexFile& apex_file : decompressed_apex) {
+      activation_list.emplace_back(std::cref(apex_file));
+    }
   }
 
   int data_apex_cnt = std::count_if(
-      activation_list.begin(), activation_list.end(), [](const ApexFile& a) {
-        return !ApexFileRepository::GetInstance().IsPreInstalledApex(a);
+      activation_list.begin(), activation_list.end(), [](const auto& a) {
+        return !ApexFileRepository::GetInstance().IsPreInstalledApex(a.get());
       });
   if (data_apex_cnt > 0) {
     Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex_cnt);
