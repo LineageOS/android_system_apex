@@ -1297,25 +1297,6 @@ Result<void> EmitApexInfoList(bool is_bootstrap) {
     return {};
   }
 
-  std::vector<com::android::apex::ApexInfo> apex_infos;
-
-  auto convert_to_autogen = [&apex_infos](const ApexFile& apex,
-                                          bool is_active) {
-    auto& instance = ApexFileRepository::GetInstance();
-
-    auto preinstalled_path =
-        instance.GetPreinstalledPath(apex.GetManifest().name());
-    std::optional<std::string> preinstalled_module_path;
-    if (preinstalled_path.ok()) {
-      preinstalled_module_path = *preinstalled_path;
-    }
-    com::android::apex::ApexInfo apex_info(
-        apex.GetManifest().name(), apex.GetPath(), preinstalled_module_path,
-        apex.GetManifest().version(), apex.GetManifest().versionname(),
-        instance.IsPreInstalledApex(apex), is_active);
-    apex_infos.emplace_back(apex_info);
-  };
-
   // Apexd runs both in "bootstrap" and "default" mount namespace.
   // To expose /apex/apex-info-list.xml separately in each mount namespaces,
   // we write /apex/.<namespace>-apex-info-list .xml file first and then
@@ -1330,27 +1311,25 @@ Result<void> EmitApexInfoList(bool is_bootstrap) {
     return ErrnoErrorf("Can't open {}", file_name);
   }
 
-  const auto& active = GetActivePackages();
-  for (const auto& apex : active) {
-    convert_to_autogen(apex, true /* is_active */);
-  }
+  const std::vector<ApexFile> active(GetActivePackages());
+
+  std::vector<ApexFile> inactive;
   // we skip for non-activated built-in apexes in bootstrap mode
   // in order to avoid boottime increase
   if (!is_bootstrap) {
-    for (const auto& apex : GetFactoryPackages()) {
-      const auto& same_path = [&apex](const auto& o) {
-        return o.GetPath() == apex.GetPath();
-      };
-      if (std::find_if(active.begin(), active.end(), same_path) ==
-          active.end()) {
-        convert_to_autogen(apex, false /* is_active */);
-      }
-    }
+    inactive = GetFactoryPackages();
+    auto new_end = std::remove_if(
+        inactive.begin(), inactive.end(), [&active](const ApexFile& apex) {
+          return std::any_of(active.begin(), active.end(),
+                             [&apex](const ApexFile& active_apex) {
+                               return apex.GetPath() == active_apex.GetPath();
+                             });
+        });
+    inactive.erase(new_end, inactive.end());
   }
 
   std::stringstream xml;
-  com::android::apex::ApexInfoList apex_info_list(apex_infos);
-  com::android::apex::write(xml, apex_info_list);
+  CollectApexInfoList(xml, active, inactive);
 
   if (!android::base::WriteStringToFd(xml.str(), fd)) {
     return ErrnoErrorf("Can't write to {}", file_name);
@@ -2811,6 +2790,37 @@ Result<void> RemountPackages() {
                    << "APEX packages: [" << Join(failed, ',') << "]";
   }
   return {};
+}
+
+void CollectApexInfoList(std::ostream& os,
+                         const std::vector<ApexFile>& active_apexs,
+                         const std::vector<ApexFile>& inactive_apexs) {
+  std::vector<com::android::apex::ApexInfo> apex_infos;
+
+  auto convert_to_autogen = [&apex_infos](const ApexFile& apex,
+                                          bool is_active) {
+    auto& instance = ApexFileRepository::GetInstance();
+
+    auto preinstalled_path =
+        instance.GetPreinstalledPath(apex.GetManifest().name());
+    std::optional<std::string> preinstalled_module_path;
+    if (preinstalled_path.ok()) {
+      preinstalled_module_path = *preinstalled_path;
+    }
+    com::android::apex::ApexInfo apex_info(
+        apex.GetManifest().name(), apex.GetPath(), preinstalled_module_path,
+        apex.GetManifest().version(), apex.GetManifest().versionname(),
+        instance.IsPreInstalledApex(apex), is_active);
+    apex_infos.emplace_back(apex_info);
+  };
+  for (const auto& apex : active_apexs) {
+    convert_to_autogen(apex, /* is_active= */ true);
+  }
+  for (const auto& apex : inactive_apexs) {
+    convert_to_autogen(apex, /* is_active= */ false);
+  }
+  com::android::apex::ApexInfoList apex_info_list(apex_infos);
+  com::android::apex::write(os, apex_info_list);
 }
 
 }  // namespace apex

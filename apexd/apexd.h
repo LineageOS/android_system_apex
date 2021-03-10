@@ -17,6 +17,7 @@
 #ifndef ANDROID_APEXD_APEXD_H_
 #define ANDROID_APEXD_APEXD_H_
 
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -140,6 +141,10 @@ GetTempMountedApexData(const std::string& package);
 // Optimistically tries to remount as many APEX packages as possible.
 // For more documentation see corresponding binder call in IApexService.aidl.
 android::base::Result<void> RemountPackages();
+
+void CollectApexInfoList(std::ostream& os,
+                         const std::vector<ApexFile>& active_apexs,
+                         const std::vector<ApexFile>& inactive_apexs);
 
 }  // namespace apex
 }  // namespace android
