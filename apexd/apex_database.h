@@ -26,9 +26,6 @@
 #include <android-base/result.h>
 #include <android-base/thread_annotations.h>
 
-using android::base::Error;
-using android::base::Result;
-
 namespace android {
 namespace apex {
 
