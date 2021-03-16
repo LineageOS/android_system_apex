@@ -95,6 +95,7 @@ using android::dm::DeviceMapper;
 using android::dm::DmDeviceState;
 using android::dm::DmTable;
 using android::dm::DmTargetVerity;
+using ::apex::proto::ApexManifest;
 using apex::proto::SessionState;
 using google::protobuf::util::MessageDifferencer;
 
@@ -210,7 +211,9 @@ std::unique_ptr<DmTable> CreateVerityTable(const ApexVerityData& verity_data,
 // Synchronizes on the device actually being deleted from userspace.
 Result<void> DeleteVerityDevice(const std::string& name) {
   DeviceMapper& dm = DeviceMapper::Instance();
-  if (!dm.DeleteDevice(name, 750ms)) {
+  auto timeout = std::chrono::milliseconds(
+      android::sysprop::ApexProperties::dm_delete_timeout().value_or(750));
+  if (!dm.DeleteDevice(name, timeout)) {
     return Error() << "Failed to delete dm-device " << name;
   }
   return {};
@@ -275,8 +278,10 @@ Result<DmVerityDevice> CreateVerityDevice(const std::string& name,
     }
   }
 
+  auto timeout = std::chrono::milliseconds(
+      android::sysprop::ApexProperties::dm_create_timeout().value_or(1000));
   std::string dev_path;
-  if (!dm.CreateDevice(name, table, &dev_path, 500ms)) {
+  if (!dm.CreateDevice(name, table, &dev_path, timeout)) {
     return Errorf("Couldn't create verity device.");
   }
   return DmVerityDevice(name, dev_path);

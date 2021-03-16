@@ -38,7 +38,7 @@ namespace apex {
 class ApexFileRepository final {
  public:
   // c-tor and d-tor are exposed for testing.
-  ApexFileRepository(
+  explicit ApexFileRepository(
       const std::string& decompression_dir = kApexDecompressedDir)
       : decompression_dir_(decompression_dir){};
 
