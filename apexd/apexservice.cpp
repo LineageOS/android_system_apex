@@ -108,6 +108,8 @@ class ApexService : public BnApexService {
   BinderStatus calculateSizeForCompressedApex(
       const CompressedApexInfoList& compressed_apex_info_list,
       int64_t* required_size) override;
+  BinderStatus reserveSpaceForCompressedApex(
+      const CompressedApexInfoList& compressed_apex_info_list) override;
 
   status_t dump(int fd, const Vector<String16>& args) override;
 
@@ -234,6 +236,23 @@ BinderStatus ApexService::calculateSizeForCompressedApex(
     if (!should_allocate_space.ok() || *should_allocate_space) {
       *required_size += apex_info.decompressedSize;
     }
+  }
+  return BinderStatus::ok();
+}
+
+BinderStatus ApexService::reserveSpaceForCompressedApex(
+    const CompressedApexInfoList& compressed_apex_info_list) {
+  int64_t required_size;
+  if (auto res = calculateSizeForCompressedApex(compressed_apex_info_list,
+                                                &required_size);
+      !res.isOk()) {
+    return res;
+  }
+  if (auto res = ReserveSpaceForCompressedApex(required_size, kOtaReservedDir);
+      !res.ok()) {
+    return BinderStatus::fromExceptionCode(
+        BinderStatus::EX_SERVICE_SPECIFIC,
+        String8(res.error().message().c_str()));
   }
   return BinderStatus::ok();
 }

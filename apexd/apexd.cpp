@@ -2888,5 +2888,38 @@ void CollectApexInfoList(std::ostream& os,
   com::android::apex::write(os, apex_info_list);
 }
 
+// Reserve |size| bytes in |dest_dir| by creating a zero-filled file
+Result<void> ReserveSpaceForCompressedApex(int64_t size,
+                                           const std::string& dest_dir) {
+  LOG(INFO) << "Reserving " << size << " bytes for compressed APEX";
+
+  if (size < 0) {
+    return Error() << "Cannot reserve negative byte of space";
+  }
+  auto file_path = StringPrintf("%s/full.tmp", dest_dir.c_str());
+  if (size == 0) {
+    RemoveFileIfExists(file_path);
+    return {};
+  }
+
+  unique_fd dest_fd(
+      open(file_path.c_str(), O_WRONLY | O_CLOEXEC | O_CREAT, 0644));
+  if (dest_fd.get() == -1) {
+    return ErrnoError() << "Failed to open file for reservation "
+                        << file_path.c_str();
+  }
+
+  // Resize to required size
+  std::error_code ec;
+  std::filesystem::resize_file(file_path, size, ec);
+  if (ec) {
+    RemoveFileIfExists(file_path);
+    return ErrnoError() << "Failed to resize file " << file_path.c_str()
+                        << " : " << ec.message();
+  }
+
+  return {};
+}
+
 }  // namespace apex
 }  // namespace android

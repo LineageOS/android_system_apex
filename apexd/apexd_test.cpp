@@ -462,5 +462,70 @@ TEST(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
   }
 }
 
+TEST(ApexdUnitTest, ReserveSpaceForCompressedApexCreatesSingleFile) {
+  TemporaryDir dest_dir;
+  // Reserving space should create a single file in dest_dir with exact size
+
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(100, dest_dir.path)));
+  auto files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 1u);
+  EXPECT_EQ(fs::file_size((*files)[0]), 100u);
+}
+
+TEST(ApexdUnitTest, ReserveSpaceForCompressedApexSafeToCallMultipleTimes) {
+  TemporaryDir dest_dir;
+  // Calling ReserveSpaceForCompressedApex multiple times should still create
+  // a single file
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(100, dest_dir.path)));
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(100, dest_dir.path)));
+  auto files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 1u);
+  EXPECT_EQ(fs::file_size((*files)[0]), 100u);
+}
+
+TEST(ApexdUnitTest, ReserveSpaceForCompressedApexShrinkAndGrow) {
+  TemporaryDir dest_dir;
+
+  // Create a 100 byte file
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(100, dest_dir.path)));
+
+  // Should be able to shrink and grow the reserved space
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(1000, dest_dir.path)));
+  auto files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 1u);
+  EXPECT_EQ(fs::file_size((*files)[0]), 1000u);
+
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(10, dest_dir.path)));
+  files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 1u);
+  EXPECT_EQ(fs::file_size((*files)[0]), 10u);
+}
+
+TEST(ApexdUnitTest, ReserveSpaceForCompressedApexDeallocateIfPassedZero) {
+  TemporaryDir dest_dir;
+
+  // Create a file first
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(100, dest_dir.path)));
+  auto files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 1u);
+
+  // Should delete the reserved file if size passed is 0
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(0, dest_dir.path)));
+  files = ReadDir(dest_dir.path, [](auto _) { return true; });
+  ASSERT_TRUE(IsOk(files));
+  ASSERT_EQ(files->size(), 0u);
+}
+
+TEST(ApexdUnitTest, ReserveSpaceForCompressedApexErrorForNegativeValue) {
+  TemporaryDir dest_dir;
+  // Should return error if negative value is passed
+  ASSERT_FALSE(IsOk(ReserveSpaceForCompressedApex(-1, dest_dir.path)));
+}
+
 }  // namespace apex
 }  // namespace android

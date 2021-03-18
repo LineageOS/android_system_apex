@@ -154,6 +154,10 @@ void CollectApexInfoList(std::ostream& os,
                          const std::vector<ApexFile>& active_apexs,
                          const std::vector<ApexFile>& inactive_apexs);
 
+// Reserve |size| bytes in |dest_dir| by creating a zero-filled file
+android::base::Result<void> ReserveSpaceForCompressedApex(
+    int64_t size, const std::string& dest_dir);
+
 }  // namespace apex
 }  // namespace android
 
