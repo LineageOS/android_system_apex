@@ -323,5 +323,144 @@ TEST(ApexdUnitTest, DecompressedApexCleanupDeleteIfLinkedToDifferentFilename) {
       << "Unlinked decompressed file did not get deleted";
 }
 
+namespace {
+// Copies the compressed apex to |built_in_dir| and decompresses it to
+// |decompressed_dir| and then hard links to |data_dir|
+void PrepareCompressedApex(const std::string& name,
+                           const std::string& built_in_dir,
+                           const std::string& data_dir,
+                           const std::string& decompressed_dir) {
+  fs::copy(GetTestFile(name), built_in_dir);
+  auto compressed_apex =
+      ApexFile::Open(StringPrintf("%s/%s", built_in_dir.c_str(), name.c_str()));
+  std::vector<std::reference_wrapper<const ApexFile>> compressed_apex_list;
+  compressed_apex_list.emplace_back(std::cref(*compressed_apex));
+  auto return_value =
+      ProcessCompressedApex(compressed_apex_list, decompressed_dir, data_dir);
+}
+}  // namespace
+
+TEST(ApexdUnitTest, ShouldAllocateSpaceForDecompressionNewApex) {
+  TemporaryDir built_in_dir;
+  ApexFileRepository instance;
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
+
+  // A brand new compressed APEX is being introduced: selected
+  auto result =
+      ShouldAllocateSpaceForDecompression("com.android.brand.new", 1, instance);
+  ASSERT_TRUE(IsOk(result));
+  ASSERT_TRUE(*result);
+}
+
+TEST(ApexdUnitTest, ShouldAllocateSpaceForDecompressionWasNotCompressedBefore) {
+  // Prepare fake pre-installed apex
+  TemporaryDir built_in_dir;
+  fs::copy(GetTestFile("apex.apexd_test.apex"), built_in_dir.path);
+  ApexFileRepository instance;
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
+
+  // An existing pre-installed APEX is now compressed in the OTA: selected
+  {
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.test_package", 1, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_TRUE(*result);
+  }
+
+  // Even if there is a data apex (lower version)
+  // Include data apex within calculation now
+  TemporaryDir data_dir;
+  fs::copy(GetTestFile("apex.apexd_test_v2.apex"), data_dir.path);
+  ASSERT_TRUE(IsOk(instance.AddDataApex(data_dir.path)));
+  {
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.test_package", 3, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_TRUE(*result);
+  }
+
+  // But not if data apex has equal or higher version
+  {
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.test_package", 2, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_FALSE(*result);
+  }
+}
+
+TEST(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
+  // Prepare fake pre-installed apex
+  TemporaryDir built_in_dir, data_dir, decompression_dir;
+  PrepareCompressedApex("com.android.apex.compressed.v1.capex",
+                        built_in_dir.path, data_dir.path,
+                        decompression_dir.path);
+  ApexFileRepository instance(decompression_dir.path);
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(data_dir.path)));
+
+  {
+    // New Compressed apex has higher version than decompressed data apex:
+    // selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 2, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_TRUE(*result)
+        << "Higher version test with decompressed data returned false";
+  }
+
+  // Compare against decompressed data apex
+  {
+    // New Compressed apex has same version as decompressed data apex: not
+    // selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 1, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_FALSE(*result)
+        << "Same version test with decompressed data returned true";
+  }
+
+  {
+    // New Compressed apex has lower version than decompressed data apex:
+    // selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 0, instance);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_TRUE(*result)
+        << "lower version test with decompressed data returned false";
+  }
+
+  // Replace decompressed data apex with a higher version
+  ApexFileRepository instance_new(decompression_dir.path);
+  ASSERT_TRUE(IsOk(instance_new.AddPreInstalledApex({built_in_dir.path})));
+  TemporaryDir data_dir_new;
+  fs::copy(GetTestFile("com.android.apex.compressed.v2_original.apex"),
+           data_dir_new.path);
+  ASSERT_TRUE(IsOk(instance_new.AddDataApex(data_dir_new.path)));
+
+  {
+    // New Compressed apex has higher version as data apex: selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 3, instance_new);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_TRUE(*result) << "Higher version test with new data returned false";
+  }
+
+  {
+    // New Compressed apex has same version as data apex: not selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 2, instance_new);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_FALSE(*result) << "Same version test with new data returned true";
+  }
+
+  {
+    // New Compressed apex has lower version than data apex: not selected
+    auto result = ShouldAllocateSpaceForDecompression(
+        "com.android.apex.compressed", 1, instance_new);
+    ASSERT_TRUE(IsOk(result));
+    ASSERT_FALSE(*result) << "lower version test with new data returned true";
+  }
+}
+
 }  // namespace apex
 }  // namespace android

@@ -97,6 +97,9 @@ void InitializeVold(CheckpointInterface* checkpoint_service);
 // Initializes in-memory state (e.g. pre-installed data, activated apexes).
 // Must be called first before calling any other boot sequence related function.
 void Initialize(CheckpointInterface* checkpoint_service);
+// Initializes data apex as in-memory state. Should be called only if we are
+// not booting, since initialization timing is different when booting
+void InitializeDataApex();
 // Migrates sessions from /data/apex/session to /metadata/session.i
 // Must only be called during boot (i.e apexd.status is not "ready" or
 // "activated").
@@ -141,6 +144,11 @@ GetTempMountedApexData(const std::string& package);
 // Optimistically tries to remount as many APEX packages as possible.
 // For more documentation see corresponding binder call in IApexService.aidl.
 android::base::Result<void> RemountPackages();
+
+// Exposed for unit tests
+android::base::Result<bool> ShouldAllocateSpaceForDecompression(
+    const std::string& new_apex_name, int64_t new_apex_version,
+    const ApexFileRepository& instance);
 
 void CollectApexInfoList(std::ostream& os,
                          const std::vector<ApexFile>& active_apexs,
