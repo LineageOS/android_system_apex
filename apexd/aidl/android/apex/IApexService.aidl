@@ -146,4 +146,10 @@ interface IApexService {
    * calculate how much space will be required for decompression
    */
    long calculateSizeForCompressedApex(in CompressedApexInfoList compressed_apex_info_list);
+
+   /**
+   * Reserve space on /data partition for compressed APEX decompression. Returns error if
+   * reservation fails. If empty list is passed, then reserved space is deallocated.
+   */
+   void reserveSpaceForCompressedApex(in CompressedApexInfoList compressed_apex_info_list);
 }

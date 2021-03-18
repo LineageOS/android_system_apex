@@ -3071,6 +3071,44 @@ TEST_F(ApexServiceTestForCompressedApex, CalculateSizeForCompressedApex) {
   }
 }
 
+TEST_F(ApexServiceTestForCompressedApex, ReserveSpaceForCompressedApex) {
+  // Multiple compressed APEX should reserve equal to
+  // CalculateSizeForCompressedApex
+  {
+    CompressedApexInfoList non_empty_list;
+    CompressedApexInfo new_apex = CreateCompressedApex("new_apex", 1, 1);
+    CompressedApexInfo new_apex_2 = CreateCompressedApex("new_apex_2", 1, 2);
+    CompressedApexInfo compressed_apex_same_version =
+        CreateCompressedApex("com.android.apex.compressed", 1, 4);
+    CompressedApexInfo compressed_apex_higher_version =
+        CreateCompressedApex("com.android.apex.compressed", 2, 8);
+    non_empty_list.apexInfos.push_back(new_apex);
+    non_empty_list.apexInfos.push_back(new_apex_2);
+    non_empty_list.apexInfos.push_back(compressed_apex_same_version);
+    non_empty_list.apexInfos.push_back(compressed_apex_higher_version);
+    int64_t required_size;
+    ASSERT_TRUE(IsOk(service_->calculateSizeForCompressedApex(non_empty_list,
+                                                              &required_size)));
+    ASSERT_EQ(required_size,
+              11ll);  // 1+2+8. compressed_apex_same_version is ignored
+
+    ASSERT_TRUE(IsOk(service_->reserveSpaceForCompressedApex(non_empty_list)));
+    auto files = ReadDir(kOtaReservedDir, [](auto _) { return true; });
+    ASSERT_TRUE(IsOk(files));
+    ASSERT_EQ(files->size(), 1u);
+    EXPECT_EQ((int64_t)fs::file_size((*files)[0]), required_size);
+  }
+
+  // Sending empty list should delete reserved file
+  {
+    CompressedApexInfoList empty_list;
+    ASSERT_TRUE(IsOk(service_->reserveSpaceForCompressedApex(empty_list)));
+    auto files = ReadDir(kOtaReservedDir, [](auto _) { return true; });
+    ASSERT_TRUE(IsOk(files));
+    ASSERT_EQ(files->size(), 0u);
+  }
+}
+
 }  // namespace apex
 }  // namespace android
 
