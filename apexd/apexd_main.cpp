@@ -55,6 +55,11 @@ int HandleSubcommand(char** argv) {
     return android::apex::UnmountAll();
   }
 
+  if (strcmp("--otachroot-bootstrap", argv[1]) == 0) {
+    LOG(INFO) << "OTA chroot bootstrap subcommand detected";
+    return android::apex::OnOtaChrootBootstrap();
+  }
+
   if (strcmp("--snapshotde", argv[1]) == 0) {
     LOG(INFO) << "Snapshot DE subcommand detected";
     // Need to know if checkpointing is enabled so that a prerestore snapshot

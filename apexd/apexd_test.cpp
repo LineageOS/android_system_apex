@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <android-base/file.h>
+#include <android-base/scopeguard.h>
 #include <android-base/stringprintf.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,6 +28,8 @@
 #include "apexd_test_utils.h"
 #include "apexd_utils.h"
 
+#include "com_android_apex.h"
+
 namespace android {
 namespace apex {
 
@@ -35,7 +38,9 @@ namespace fs = std::filesystem;
 using android::apex::testing::ApexFileEq;
 using android::apex::testing::IsOk;
 using android::base::GetExecutableDirectory;
+using android::base::make_scope_guard;
 using android::base::StringPrintf;
+using com::android::apex::testing::ApexInfoXmlEq;
 using ::testing::ByRef;
 using ::testing::UnorderedElementsAre;
 
@@ -525,6 +530,80 @@ TEST(ApexdUnitTest, ReserveSpaceForCompressedApexErrorForNegativeValue) {
   TemporaryDir dest_dir;
   // Should return error if negative value is passed
   ASSERT_FALSE(IsOk(ReserveSpaceForCompressedApex(-1, dest_dir.path)));
+}
+
+TEST(ApexdUnitTest, ActivatePackage) {
+  ApexFileRepository::GetInstance().Reset();
+  MountNamespaceRestorer restorer;
+  ASSERT_TRUE(IsOk(SetUpApexTestEnvironment()));
+
+  TemporaryDir td;
+  fs::copy(GetTestFile("apex.apexd_test.apex"), td.path);
+  ApexFileRepository::GetInstance().AddPreInstalledApex({td.path});
+
+  std::string file_path = StringPrintf("%s/apex.apexd_test.apex", td.path);
+  ASSERT_TRUE(IsOk(ActivatePackage(file_path)));
+
+  auto active_apex = GetActivePackage("com.android.apex.test_package");
+  ASSERT_TRUE(IsOk(active_apex));
+  ASSERT_EQ(active_apex->GetPath(), file_path);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1"));
+
+  ASSERT_TRUE(IsOk(DeactivatePackage(file_path)));
+  ASSERT_FALSE(IsOk(GetActivePackage("com.android.apex.test_package")));
+
+  auto new_apex_mounts = GetApexMounts();
+  ASSERT_EQ(new_apex_mounts.size(), 0u);
+}
+
+TEST(ApexdUnitTest, OnOtaChrootBootstrapOnlyPreInstalledApexes) {
+  ApexFileRepository::GetInstance().Reset();
+  MountNamespaceRestorer restorer;
+  ASSERT_TRUE(IsOk(SetUpApexTestEnvironment()));
+
+  TemporaryDir td;
+  fs::copy(GetTestFile("apex.apexd_test.apex"), td.path);
+  fs::copy(GetTestFile("apex.apexd_test_different_app.apex"), td.path);
+
+  std::string apex_path_1 = StringPrintf("%s/apex.apexd_test.apex", td.path);
+  std::string apex_path_2 =
+      StringPrintf("%s/apex.apexd_test_different_app.apex", td.path);
+
+  ASSERT_EQ(OnOtaChrootBootstrap({td.path}), 0);
+
+  auto deleter = make_scope_guard([&]() {
+    if (auto st = DeactivatePackage(apex_path_1); !st.ok()) {
+      LOG(ERROR) << st.error();
+    };
+    if (auto st = DeactivatePackage(apex_path_2); !st.ok()) {
+      LOG(ERROR) << st.error();
+    };
+  });
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 =
+      com::android::apex::ApexInfo("com.android.apex.test_package", apex_path_1,
+                                   apex_path_1, 1, "1", true, true);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      "com.android.apex.test_package_2", apex_path_2, apex_path_2, 1, "1", true,
+      true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2)));
 }
 
 }  // namespace apex

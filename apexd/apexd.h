@@ -158,6 +158,13 @@ void CollectApexInfoList(std::ostream& os,
 android::base::Result<void> ReserveSpaceForCompressedApex(
     int64_t size, const std::string& dest_dir);
 
+// Activates apexes in otapreot_chroot environment.
+// TODO(b/181182967): support sharedlibs apex.
+// TODO(b/181182967): support apex updates on /data.
+// TODO(b/181182967): support compressed apexes.
+// TODO(b/181182967): probably also need to support flattened apexes.
+int OnOtaChrootBootstrap(
+    const std::vector<std::string>& built_in_dirs = kApexPackageBuiltinDirs);
 }  // namespace apex
 }  // namespace android
 

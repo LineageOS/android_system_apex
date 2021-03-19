@@ -427,6 +427,7 @@ cc_test {
     "libfs_mgr",
     "libutils",
   ],
+  generated_sources: ["apex-info-list"],
   test_suites: ["device-tests"],
   test_config: "AndroidTest.xml",
 }

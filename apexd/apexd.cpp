@@ -1537,10 +1537,11 @@ Result<void> ActivateApexPackages(
 
   std::vector<std::future<std::vector<Result<void>>>> futures;
   futures.reserve(worker_num);
-  for (size_t i = 0; i < worker_num; i++)
+  for (size_t i = 0; i < worker_num; i++) {
     futures.push_back(std::async(std::launch::async, ActivateApexWorker,
                                  std::ref(apex_queue),
                                  std::ref(apex_queue_mutex)));
+  }
 
   size_t activated_cnt = 0;
   size_t failed_cnt = 0;
@@ -2919,6 +2920,34 @@ Result<void> ReserveSpaceForCompressedApex(int64_t size,
   }
 
   return {};
+}
+
+int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs) {
+  auto& instance = ApexFileRepository::GetInstance();
+  instance.AddPreInstalledApex(built_in_dirs);
+  auto status = ActivateApexPackages(instance.GetPreInstalledApexFiles());
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to activate pre-installed apexes : "
+               << status.error();
+    return 1;
+  }
+
+  std::stringstream xml;
+  CollectApexInfoList(xml, GetActivePackages(), {});
+  std::string file_name = StringPrintf("%s/%s", kApexRoot, kApexInfoList);
+  unique_fd fd(TEMP_FAILURE_RETRY(
+      open(file_name.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644)));
+  if (fd.get() == -1) {
+    PLOG(ERROR) << "Can't open " << file_name;
+    return 1;
+  }
+
+  if (!android::base::WriteStringToFd(xml.str(), fd)) {
+    PLOG(ERROR) << "Can't write to " << file_name;
+    return 1;
+  }
+
+  return 0;
 }
 
 }  // namespace apex
