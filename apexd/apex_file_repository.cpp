@@ -72,6 +72,16 @@ Result<void> ApexFileRepository::ScanBuiltInDir(const std::string& dir) {
       auto level = build_type == "eng" && name == "com.android.art"
                        ? base::ERROR
                        : base::FATAL;
+      // On some development (non-REL) builds the VNDK apex could be in /vendor.
+      // When testing CTS-on-GSI on these builds, there would be two VNDK apexes
+      // in the system, one in /system and one in /vendor.
+      static constexpr char kVndkApexModuleNamePrefix[] = "com.android.vndk.";
+      static constexpr char kPlatformVersionCodenameProperty[] =
+          "ro.build.version.codename";
+      if (android::base::StartsWith(name, kVndkApexModuleNamePrefix) &&
+          GetProperty(kPlatformVersionCodenameProperty, "REL") != "REL") {
+        level = android::base::INFO;
+      }
       LOG(level) << "Found two apex packages " << it->second.GetPath()
                  << " and " << apex_file->GetPath()
                  << " with the same module name " << name;

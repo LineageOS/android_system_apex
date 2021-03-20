@@ -433,7 +433,7 @@ TEST(ApexFileRepositoryTest, GetPreInstalledApexFiles) {
                                    ApexFileEq(ByRef(*pre_apex_2))));
 }
 
-TEST(ApexdUnitTest, AllApexFilesByName) {
+TEST(ApexFileRepositoryTest, AllApexFilesByName) {
   TemporaryDir built_in_dir;
   fs::copy(GetTestFile("apex.apexd_test.apex"), built_in_dir.path);
   fs::copy(GetTestFile("com.android.apex.cts.shim.apex"), built_in_dir.path);

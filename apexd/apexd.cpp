@@ -948,7 +948,9 @@ Result<void> UnmountPackage(const ApexFile& apex, bool allow_latest) {
     return Error() << "Did not find " << apex.GetPath();
   }
 
-  if (latest) {
+  // Concept of latest sharedlibs apex is somewhat blurred. Since this is only
+  // used in testing, it is ok to always allow unmounting sharedlibs apex.
+  if (latest && !manifest.providesharedapexlibs()) {
     if (!allow_latest) {
       return Error() << "Package " << apex.GetPath() << " is active";
     }
@@ -2922,18 +2924,60 @@ Result<void> ReserveSpaceForCompressedApex(int64_t size,
   return {};
 }
 
-int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs) {
+int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs,
+                         const std::string& apex_data_dir) {
   auto& instance = ApexFileRepository::GetInstance();
-  instance.AddPreInstalledApex(built_in_dirs);
-  auto status = ActivateApexPackages(instance.GetPreInstalledApexFiles());
-  if (!status.ok()) {
-    LOG(ERROR) << "Failed to activate pre-installed apexes : "
-               << status.error();
+  if (auto status = instance.AddPreInstalledApex(built_in_dirs); !status.ok()) {
+    LOG(ERROR) << "Failed to scan pre-installed apexes from "
+               << Join(built_in_dirs, ',');
+    return 1;
+  }
+  if (auto status = instance.AddDataApex(apex_data_dir); !status.ok()) {
+    LOG(ERROR) << "Failed to scan upgraded apexes from " << apex_data_dir;
+    // Failing to scan upgraded apexes is not fatal, since we can still try to
+    // run otapreopt using only pre-installed apexes. Worst case, apps will be
+    // re-optimized on next boot.
+  }
+
+  // Create directories for APEX shared libraries.
+  if (auto status = CreateSharedLibsApexDir(); !status.ok()) {
+    LOG(ERROR) << "Failed to create /apex/sharedlibs : " << status.ok();
     return 1;
   }
 
+  auto activation_list =
+      SelectApexForActivation(instance.AllApexFilesByName(), instance);
+  if (auto status = ActivateApexPackages(activation_list); !status.ok()) {
+    LOG(ERROR) << "Failed to activate apex packages : " << status.error();
+    return 1;
+  }
+
+  // There are a bunch of places that are producing apex-info.xml file.
+  // We should consolidate the logic in one function and make all other places
+  // use it.
+  auto active_apexes = GetActivePackages();
+  // We can't use GetFactoryPackages here, since it scans
+  // kApexPackageBuiltinDirs. Once that is fixed, code here can be simplified.
+  std::vector<ApexFile> inactive_apexes;
+  for (const auto& pre_installed_apex : instance.GetPreInstalledApexFiles()) {
+    if (std::none_of(active_apexes.begin(), active_apexes.end(),
+                     [&pre_installed_apex](const auto& active_apex) {
+                       return pre_installed_apex.get().GetPath() ==
+                              active_apex.GetPath();
+                     })) {
+      // We need to do re-open the file here because CollectApexInfoList
+      // accepts std::vector<ApexFile> :(
+      auto apex = ApexFile::Open(pre_installed_apex.get().GetPath());
+      if (apex.ok()) {
+        inactive_apexes.push_back(std::move(*apex));
+      } else {
+        LOG(ERROR) << "Failed to open " << pre_installed_apex.get().GetPath()
+                   << " : " << apex.error();
+      }
+    }
+  }
   std::stringstream xml;
-  CollectApexInfoList(xml, GetActivePackages(), {});
+  CollectApexInfoList(xml, GetActivePackages(), inactive_apexes);
   std::string file_name = StringPrintf("%s/%s", kApexRoot, kApexInfoList);
   unique_fd fd(TEMP_FAILURE_RETRY(
       open(file_name.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644)));
@@ -2944,6 +2988,14 @@ int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs) {
 
   if (!android::base::WriteStringToFd(xml.str(), fd)) {
     PLOG(ERROR) << "Can't write to " << file_name;
+    return 1;
+  }
+
+  fd.reset();
+
+  if (auto status = RestoreconPath(file_name); !status.ok()) {
+    LOG(ERROR) << "Failed to restorecon " << file_name << " : "
+               << status.error();
     return 1;
   }
 
