@@ -18,6 +18,8 @@
 #include <vector>
 
 #include <android-base/file.h>
+#include <android-base/properties.h>
+#include <android-base/scopeguard.h>
 #include <android-base/stringprintf.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,6 +29,8 @@
 #include "apexd_test_utils.h"
 #include "apexd_utils.h"
 
+#include "com_android_apex.h"
+
 namespace android {
 namespace apex {
 
@@ -35,9 +39,13 @@ namespace fs = std::filesystem;
 using android::apex::testing::ApexFileEq;
 using android::apex::testing::IsOk;
 using android::base::GetExecutableDirectory;
+using android::base::GetProperty;
+using android::base::make_scope_guard;
 using android::base::StringPrintf;
+using com::android::apex::testing::ApexInfoXmlEq;
 using ::testing::ByRef;
 using ::testing::UnorderedElementsAre;
+using ::testing::UnorderedElementsAreArray;
 
 static std::string GetTestDataDir() { return GetExecutableDirectory(); }
 static std::string GetTestFile(const std::string& name) {
@@ -525,6 +533,603 @@ TEST(ApexdUnitTest, ReserveSpaceForCompressedApexErrorForNegativeValue) {
   TemporaryDir dest_dir;
   // Should return error if negative value is passed
   ASSERT_FALSE(IsOk(ReserveSpaceForCompressedApex(-1, dest_dir.path)));
+}
+
+// A test fixture to use for tests that mount/unmount apexes.
+class ApexdMountTest : public ::testing::Test {
+ public:
+  ApexdMountTest() {
+    built_in_dir_ = StringPrintf("%s/pre-installed-apex", td_.path);
+    data_dir_ = StringPrintf("%s/data-apex", td_.path);
+  }
+
+  const std::string& GetBuiltInDir() { return built_in_dir_; }
+  const std::string& GetDataDir() { return data_dir_; }
+
+  std::string AddPreInstalledApex(const std::string& apex_name) {
+    fs::copy(GetTestFile(apex_name), built_in_dir_);
+    return StringPrintf("%s/%s", built_in_dir_.c_str(), apex_name.c_str());
+  }
+
+  std::string AddDataApex(const std::string& apex_name) {
+    fs::copy(GetTestFile(apex_name), data_dir_);
+    return StringPrintf("%s/%s", data_dir_.c_str(), apex_name.c_str());
+  }
+
+  void UnmountOnTearDown(const std::string& apex_file) {
+    to_unmount_.push_back(apex_file);
+  }
+
+ protected:
+  void SetUp() final {
+    ApexFileRepository::GetInstance().Reset();
+    ASSERT_TRUE(IsOk(SetUpApexTestEnvironment()));
+    ASSERT_EQ(mkdir(built_in_dir_.c_str(), 0755), 0);
+    ASSERT_EQ(mkdir(data_dir_.c_str(), 0755), 0);
+  }
+
+  void TearDown() final {
+    for (const auto& apex : to_unmount_) {
+      if (auto status = DeactivatePackage(apex); !status.ok()) {
+        LOG(ERROR) << "Failed to unmount " << apex << " : " << status.error();
+      }
+    }
+  }
+
+ private:
+  MountNamespaceRestorer restorer_;
+  TemporaryDir td_;
+  std::string built_in_dir_;
+  std::string data_dir_;
+  std::vector<std::string> to_unmount_;
+};
+
+TEST_F(ApexdMountTest, ActivatePackage) {
+  std::string file_path = AddPreInstalledApex("apex.apexd_test.apex");
+  ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
+
+  ASSERT_TRUE(IsOk(ActivatePackage(file_path)));
+  UnmountOnTearDown(file_path);
+
+  auto active_apex = GetActivePackage("com.android.apex.test_package");
+  ASSERT_TRUE(IsOk(active_apex));
+  ASSERT_EQ(active_apex->GetPath(), file_path);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1"));
+
+  ASSERT_TRUE(IsOk(DeactivatePackage(file_path)));
+  ASSERT_FALSE(IsOk(GetActivePackage("com.android.apex.test_package")));
+
+  auto new_apex_mounts = GetApexMounts();
+  ASSERT_EQ(new_apex_mounts.size(), 0u);
+}
+
+TEST_F(ApexdMountTest, ActivateDeactivateSharedLibsApex) {
+  ASSERT_EQ(mkdir("/apex/sharedlibs", 0755), 0);
+  ASSERT_EQ(mkdir("/apex/sharedlibs/lib", 0755), 0);
+  ASSERT_EQ(mkdir("/apex/sharedlibs/lib64", 0755), 0);
+  auto deleter = make_scope_guard([]() {
+    std::error_code ec;
+    fs::remove_all("/apex/sharedlibs", ec);
+    if (ec) {
+      LOG(ERROR) << "Failed to delete /apex/sharedlibs : " << ec;
+    }
+  });
+
+  std::string file_path = AddPreInstalledApex(
+      "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
+  ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
+
+  ASSERT_TRUE(IsOk(ActivatePackage(file_path)));
+
+  auto active_apex = GetActivePackage("com.android.apex.test.sharedlibs");
+  ASSERT_TRUE(IsOk(active_apex));
+  ASSERT_EQ(active_apex->GetPath(), file_path);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test.sharedlibs@1"));
+
+  ASSERT_TRUE(IsOk(DeactivatePackage(file_path)));
+  ASSERT_FALSE(IsOk(GetActivePackage("com.android.apex.test.sharedlibs")));
+
+  auto new_apex_mounts = GetApexMounts();
+  ASSERT_EQ(new_apex_mounts.size(), 0u);
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapOnlyPreInstalledApexes) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+
+  ASSERT_EQ(
+      OnOtaChrootBootstrap({GetBuiltInDir()}, "/data/local/tmp/does-not-exist"),
+      0);
+  UnmountOnTearDown(apex_path_1);
+  UnmountOnTearDown(apex_path_2);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapFailsToScanPreInstalledApexes) {
+  AddPreInstalledApex("apex.apexd_test.apex");
+  AddPreInstalledApex("apex.apexd_test_corrupt_superblock_apex.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, "/data/local/whatevs"), 1);
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataHasHigherVersion) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+  std::string apex_path_3 = AddDataApex("apex.apexd_test_v2.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_2);
+  UnmountOnTearDown(apex_path_3);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@2",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+  auto apex_info_xml_3 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_3,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ false, /* isActive= */ true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2),
+                                   ApexInfoXmlEq(apex_info_xml_3)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataHasSameVersion) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+  std::string apex_path_3 = AddDataApex("apex.apexd_test.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_2);
+  UnmountOnTearDown(apex_path_3);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+  auto apex_info_xml_3 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_3,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ false, /* isActive= */ true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2),
+                                   ApexInfoXmlEq(apex_info_xml_3)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapSystemHasHigherVersion) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test_v2.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+  AddDataApex("apex.apexd_test.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_1);
+  UnmountOnTearDown(apex_path_2);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@2",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ true, /* isActive= */ true);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataHasSameVersionButDifferentKey) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+  AddDataApex("apex.apexd_test_different_key.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_1);
+  UnmountOnTearDown(apex_path_2);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2)));
+}
+
+TEST_F(ApexdMountTest,
+       OnOtaChrootBootstrapDataHasHigherVersionButDifferentKey) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 =
+      AddPreInstalledApex("apex.apexd_test_different_app.apex");
+  std::string apex_path_3 =
+      AddDataApex("apex.apexd_test_different_key_v2.apex");
+
+  {
+    auto apex = ApexFile::Open(apex_path_3);
+    ASSERT_TRUE(IsOk(apex));
+    ASSERT_EQ(static_cast<uint64_t>(apex->GetManifest().version()), 2ULL);
+  }
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_1);
+  UnmountOnTearDown(apex_path_2);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1",
+                                   "/apex/com.android.apex.test_package_2",
+                                   "/apex/com.android.apex.test_package_2@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package_2",
+      /* modulePath= */ apex_path_2, /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataApexWithoutPreInstalledApex) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  AddDataApex("apex.apexd_test_different_app.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_1);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1)));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapPreInstalledSharedLibsApex) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 = AddPreInstalledApex(
+      "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
+  std::string apex_path_3 = AddDataApex("apex.apexd_test_v2.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_2);
+  UnmountOnTearDown(apex_path_3);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@2",
+                                   "/apex/com.android.apex.test.sharedlibs@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test.sharedlibs",
+      /* modulePath= */ apex_path_2,
+      /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+  auto apex_info_xml_3 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_3,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ false, /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2),
+                                   ApexInfoXmlEq(apex_info_xml_3)));
+
+  ASSERT_EQ(access("/apex/sharedlibs", F_OK), 0);
+
+  // Check /apex/sharedlibs is populated properly.
+  std::vector<std::string> sharedlibs;
+  for (const auto& p : fs::recursive_directory_iterator("/apex/sharedlibs")) {
+    if (fs::is_symlink(p)) {
+      auto src = fs::read_symlink(p.path());
+      ASSERT_EQ(p.path().filename(), src.filename());
+      sharedlibs.push_back(p.path().parent_path().string() + "->" +
+                           src.parent_path().string());
+    }
+  }
+
+  std::vector<std::string> expected = {
+      "/apex/sharedlibs/lib/libsharedlibtest.so->"
+      "/apex/com.android.apex.test.sharedlibs@1/lib/libsharedlibtest.so",
+      "/apex/sharedlibs/lib/libc++.so->"
+      "/apex/com.android.apex.test.sharedlibs@1/lib/libc++.so",
+  };
+
+  // On 64bit devices we also have lib64.
+  if (!GetProperty("ro.product.cpu.abilist64", "").empty()) {
+    expected.push_back(
+        "/apex/sharedlibs/lib64/libsharedlibtest.so->"
+        "/apex/com.android.apex.test.sharedlibs@1/lib64/libsharedlibtest.so");
+    expected.push_back(
+        "/apex/sharedlibs/lib64/libc++.so->"
+        "/apex/com.android.apex.test.sharedlibs@1/lib64/libc++.so");
+  }
+  ASSERT_THAT(sharedlibs, UnorderedElementsAreArray(expected));
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapSharedLibsApexBothVersions) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 = AddPreInstalledApex(
+      "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
+  std::string apex_path_3 = AddDataApex("apex.apexd_test_v2.apex");
+  std::string apex_path_4 =
+      AddDataApex("com.android.apex.test.sharedlibs_generated.v2.libvY.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  UnmountOnTearDown(apex_path_2);
+  UnmountOnTearDown(apex_path_3);
+  UnmountOnTearDown(apex_path_4);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.test_package",
+                                   "/apex/com.android.apex.test_package@2",
+                                   "/apex/com.android.apex.test.sharedlibs@1",
+                                   "/apex/com.android.apex.test.sharedlibs@2"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_1,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test.sharedlibs",
+      /* modulePath= */ apex_path_2,
+      /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_3 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_path_3,
+      /* preinstalledModulePath= */ apex_path_1,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ false, /* isActive= */ true);
+  auto apex_info_xml_4 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test.sharedlibs",
+      /* modulePath= */ apex_path_4,
+      /* preinstalledModulePath= */ apex_path_2,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ false, /* isActive= */ true);
+
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2),
+                                   ApexInfoXmlEq(apex_info_xml_3),
+                                   ApexInfoXmlEq(apex_info_xml_4)));
+
+  ASSERT_EQ(access("/apex/sharedlibs", F_OK), 0);
+
+  // Check /apex/sharedlibs is populated properly.
+  // Because we don't want to hardcode full paths (they are pretty long and have
+  // a hash in them which might change if new prebuilts are dropped in), the
+  // assertion logic is a little bit clunky.
+  std::vector<std::string> sharedlibs;
+  for (const auto& p : fs::recursive_directory_iterator("/apex/sharedlibs")) {
+    if (fs::is_symlink(p)) {
+      auto src = fs::read_symlink(p.path());
+      ASSERT_EQ(p.path().filename(), src.filename());
+      sharedlibs.push_back(p.path().parent_path().string() + "->" +
+                           src.parent_path().string());
+    }
+  }
+
+  std::vector<std::string> expected = {
+      "/apex/sharedlibs/lib/libsharedlibtest.so->"
+      "/apex/com.android.apex.test.sharedlibs@2/lib/libsharedlibtest.so",
+      "/apex/sharedlibs/lib/libsharedlibtest.so->"
+      "/apex/com.android.apex.test.sharedlibs@1/lib/libsharedlibtest.so",
+      "/apex/sharedlibs/lib/libc++.so->"
+      "/apex/com.android.apex.test.sharedlibs@1/lib/libc++.so",
+  };
+  // On 64bit devices we also have lib64.
+  if (!GetProperty("ro.product.cpu.abilist64", "").empty()) {
+    expected.push_back(
+        "/apex/sharedlibs/lib64/libsharedlibtest.so->"
+        "/apex/com.android.apex.test.sharedlibs@2/lib64/libsharedlibtest.so");
+    expected.push_back(
+        "/apex/sharedlibs/lib64/libsharedlibtest.so->"
+        "/apex/com.android.apex.test.sharedlibs@1/lib64/libsharedlibtest.so");
+    expected.push_back(
+        "/apex/sharedlibs/lib64/libc++.so->"
+        "/apex/com.android.apex.test.sharedlibs@1/lib64/libc++.so");
+  }
+
+  ASSERT_THAT(sharedlibs, UnorderedElementsAreArray(expected));
+}
+
+static std::string GetSelinuxContext(const std::string& file) {
+  char* ctx;
+  if (getfilecon(file.c_str(), &ctx) < 0) {
+    PLOG(ERROR) << "Failed to getfilecon " << file;
+    return "";
+  }
+  std::string result(ctx);
+  freecon(ctx);
+  return result;
+}
+
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapSelinuxLabelsAreCorrect) {
+  std::string apex_path_1 = AddPreInstalledApex("apex.apexd_test.apex");
+  std::string apex_path_2 = AddPreInstalledApex(
+      "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
+  std::string apex_path_3 = AddDataApex("apex.apexd_test_v2.apex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap({GetBuiltInDir()}, GetDataDir()), 0);
+
+  EXPECT_EQ(GetSelinuxContext("/apex/apex-info-list.xml"),
+            "u:object_r:apex_info_file:s0");
+
+  EXPECT_EQ(GetSelinuxContext("/apex/sharedlibs"),
+            "u:object_r:apex_mnt_dir:s0");
+
+  EXPECT_EQ(GetSelinuxContext("/apex/com.android.apex.test_package"),
+            "u:object_r:system_file:s0");
+  EXPECT_EQ(GetSelinuxContext("/apex/com.android.apex.test_package@2"),
+            "u:object_r:system_file:s0");
 }
 
 }  // namespace apex

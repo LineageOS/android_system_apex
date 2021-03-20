@@ -101,6 +101,13 @@ class ApexFileRepository final {
                      std::vector<std::reference_wrapper<const ApexFile>>>
   AllApexFilesByName() const;
 
+  // Clears ApexFileRepostiry.
+  // Only use in tests.
+  void Reset() {
+    pre_installed_store_.clear();
+    data_store_.clear();
+  }
+
  private:
   // Non-copyable && non-moveable.
   ApexFileRepository(const ApexFileRepository&) = delete;
