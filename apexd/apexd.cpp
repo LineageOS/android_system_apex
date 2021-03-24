@@ -929,7 +929,7 @@ Result<void> RestoreActivePackages() {
 }
 
 Result<void> UnmountPackage(const ApexFile& apex, bool allow_latest) {
-  LOG(VERBOSE) << "Unmounting " << GetPackageId(apex.GetManifest());
+  LOG(INFO) << "Unmounting " << GetPackageId(apex.GetManifest());
 
   const ApexManifest& manifest = apex.GetManifest();
 
@@ -955,7 +955,7 @@ Result<void> UnmountPackage(const ApexFile& apex, bool allow_latest) {
       return Error() << "Package " << apex.GetPath() << " is active";
     }
     std::string mount_point = apexd_private::GetActiveMountPoint(manifest);
-    LOG(VERBOSE) << "Unmounting and deleting " << mount_point;
+    LOG(INFO) << "Unmounting and deleting " << mount_point;
     if (umount2(mount_point.c_str(), UMOUNT_NOFOLLOW) != 0) {
       return ErrnoError() << "Failed to unmount " << mount_point;
     }
@@ -972,12 +972,11 @@ Result<void> UnmountPackage(const ApexFile& apex, bool allow_latest) {
 
 }  // namespace
 
-Result<void> MountPackage(const ApexFile& apex,
-                          const std::string& mount_point) {
-  auto ret =
-      MountPackageImpl(apex, mount_point, GetPackageId(apex.GetManifest()),
-                       GetHashTreeFileName(apex, /* is_new = */ false),
-                       /* verify_image = */ false);
+Result<void> MountPackage(const ApexFile& apex, const std::string& mount_point,
+                          const std::string& device_name) {
+  auto ret = MountPackageImpl(apex, mount_point, device_name,
+                              GetHashTreeFileName(apex, /* is_new= */ false),
+                              /* verify_image = */ false);
   if (!ret.ok()) {
     return ret.error();
   }
@@ -1165,7 +1164,8 @@ bool IsValidPackageName(const std::string& package_name) {
   return kBannedApexName.count(package_name) == 0;
 }
 
-Result<void> ActivatePackageImpl(const ApexFile& apex_file) {
+Result<void> ActivatePackageImpl(const ApexFile& apex_file,
+                                 const std::string& device_name) {
   const ApexManifest& manifest = apex_file.GetManifest();
 
   if (!IsValidPackageName(manifest.name())) {
@@ -1212,7 +1212,7 @@ Result<void> ActivatePackageImpl(const ApexFile& apex_file) {
       apexd_private::GetPackageMountPoint(manifest);
 
   if (!version_found_mounted) {
-    auto mount_status = MountPackage(apex_file, mount_point);
+    auto mount_status = MountPackage(apex_file, mount_point, device_name);
     if (!mount_status.ok()) {
       return mount_status;
     }
@@ -1266,7 +1266,8 @@ Result<void> ActivatePackage(const std::string& full_path) {
   if (!apex_file.ok()) {
     return apex_file.error();
   }
-  return ActivatePackageImpl(*apex_file);
+  return ActivatePackageImpl(*apex_file,
+                             GetPackageId(apex_file->GetManifest()));
 }
 
 Result<void> DeactivatePackage(const std::string& full_path) {
@@ -1477,7 +1478,8 @@ Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir,
 }
 
 std::vector<Result<void>> ActivateApexWorker(
-    std::queue<const ApexFile*>& apex_queue, std::mutex& mutex) {
+    bool is_ota_chroot, std::queue<const ApexFile*>& apex_queue,
+    std::mutex& mutex) {
   std::vector<Result<void>> ret;
 
   while (true) {
@@ -1489,7 +1491,11 @@ std::vector<Result<void>> ActivateApexWorker(
       apex_queue.pop();
     }
 
-    if (auto res = ActivatePackageImpl(*apex); !res.ok()) {
+    std::string device_name = GetPackageId(apex->GetManifest());
+    if (is_ota_chroot) {
+      device_name += ".chroot";
+    }
+    if (auto res = ActivatePackageImpl(*apex, device_name); !res.ok()) {
       ret.push_back(Error() << "Failed to activate " << apex->GetPath() << " : "
                             << res.error());
     } else {
@@ -1501,26 +1507,12 @@ std::vector<Result<void>> ActivateApexWorker(
 }
 
 Result<void> ActivateApexPackages(
-    const std::vector<std::reference_wrapper<const ApexFile>>& apexes) {
-  const auto& packages_with_code = GetActivePackagesMap();
-  size_t skipped_cnt = 0;
+    const std::vector<std::reference_wrapper<const ApexFile>>& apexes,
+    bool is_ota_chroot) {
   std::queue<const ApexFile*> apex_queue;
   std::mutex apex_queue_mutex;
 
   for (const ApexFile& apex : apexes) {
-    if (!apex.GetManifest().providesharedapexlibs()) {
-      uint64_t new_version =
-          static_cast<uint64_t>(apex.GetManifest().version());
-      const auto& it = packages_with_code.find(apex.GetManifest().name());
-      if (it != packages_with_code.end() && it->second >= new_version) {
-        LOG(INFO) << "Skipping activation of " << apex.GetPath()
-                  << " same package with higher version " << it->second
-                  << " is already active";
-        skipped_cnt++;
-        continue;
-      }
-    }
-
     apex_queue.emplace(&apex);
   }
 
@@ -1541,7 +1533,7 @@ Result<void> ActivateApexPackages(
   futures.reserve(worker_num);
   for (size_t i = 0; i < worker_num; i++) {
     futures.push_back(std::async(std::launch::async, ActivateApexWorker,
-                                 std::ref(apex_queue),
+                                 std::ref(is_ota_chroot), std::ref(apex_queue),
                                  std::ref(apex_queue_mutex)));
   }
 
@@ -1561,9 +1553,38 @@ Result<void> ActivateApexPackages(
   if (failed_cnt > 0) {
     return Error() << "Failed to activate " << failed_cnt << " APEX packages";
   }
-  LOG(INFO) << "Activated " << activated_cnt
-            << " packages. Skipped: " << skipped_cnt;
+  LOG(INFO) << "Activated " << activated_cnt << " packages.";
   return {};
+}
+
+// A fallback function in case some of the apexes failed to activate. For all
+// such apexes that were coming from /data partition we will attempt to activate
+// their corresponding pre-installed copies.
+Result<void> ActivateMissingApexes(
+    const std::vector<std::reference_wrapper<const ApexFile>>& apexes,
+    bool is_ota_chroot) {
+  LOG(INFO) << "Trying to activate pre-installed versions of missing apexes";
+  const auto& file_repository = ApexFileRepository::GetInstance();
+  const auto& activated_apexes = GetActivePackagesMap();
+  std::vector<std::reference_wrapper<const ApexFile>> fallback_apexes;
+  for (const auto& apex_ref : apexes) {
+    const auto& apex = apex_ref.get();
+    if (apex.GetManifest().providesharedapexlibs()) {
+      // We must mount both versions of sharedlibs apex anyway. Not much we can
+      // do here.
+      continue;
+    }
+    if (file_repository.IsPreInstalledApex(apex)) {
+      // We tried to activate pre-installed apex in the first place. No need to
+      // try again.
+      continue;
+    }
+    const std::string& name = apex.GetManifest().name();
+    if (activated_apexes.find(name) == activated_apexes.end()) {
+      fallback_apexes.push_back(file_repository.GetPreInstalledApex(name));
+    }
+  }
+  return ActivateApexPackages(fallback_apexes, is_ota_chroot);
 }
 
 }  // namespace
@@ -1577,7 +1598,7 @@ Result<void> ScanPackagesDirAndActivate(const char* apex_package_dir) {
   std::vector<std::reference_wrapper<const ApexFile>> apexes_ref;
   std::transform(apexes->begin(), apexes->end(), std::back_inserter(apexes_ref),
                  [](const auto& x) { return std::cref(x); });
-  return ActivateApexPackages(apexes_ref);
+  return ActivateApexPackages(apexes_ref, /* is_ota_chroot= */ false);
 }
 
 /**
@@ -2234,7 +2255,9 @@ int OnBootstrap() {
   std::transform(bootstrap_apexes.begin(), bootstrap_apexes.end(),
                  std::back_inserter(bootstrap_apexes_ref),
                  [](const auto& x) { return std::cref(x); });
-  if (auto ret = ActivateApexPackages(bootstrap_apexes_ref); !ret.ok()) {
+  auto ret = ActivateApexPackages(bootstrap_apexes_ref,
+                                  /* is_ota_chroot= */ false);
+  if (!ret.ok()) {
     LOG(ERROR) << "Failed to activate bootstrap apex files : " << ret.error();
     return 1;
   }
@@ -2538,11 +2561,18 @@ void OnStart() {
   }
 
   // TODO(b/179248390): activate parallelly if possible
-  if (auto ret = ActivateApexPackages(activation_list); !ret.ok()) {
-    LOG(ERROR) << "Failed to activate packages: " << ret.error();
+  auto activate_status =
+      ActivateApexPackages(activation_list, /* is_ota_chroot= */ false);
+  if (!activate_status.ok()) {
+    LOG(ERROR) << "Failed to activate packages: " << activate_status.error();
     Result<void> revert_status = RevertActiveSessionsAndReboot("");
     if (!revert_status.ok()) {
-      LOG(ERROR) << "Failed to revert : " << ret.error();
+      LOG(ERROR) << "Failed to revert : " << revert_status.error();
+    }
+    auto retry_status = ActivateMissingApexes(activation_list,
+                                              /* is_ota_chroot= */ false);
+    if (!retry_status.ok()) {
+      LOG(ERROR) << retry_status.error();
     }
   }
 
@@ -2947,9 +2977,19 @@ int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs,
 
   auto activation_list =
       SelectApexForActivation(instance.AllApexFilesByName(), instance);
-  if (auto status = ActivateApexPackages(activation_list); !status.ok()) {
-    LOG(ERROR) << "Failed to activate apex packages : " << status.error();
-    return 1;
+  auto activate_status = ActivateApexPackages(activation_list,
+                                              /* is_ota_chroot= */ true);
+
+  int ret = 0;
+  if (!activate_status.ok()) {
+    LOG(ERROR) << "Failed to activate apex packages : "
+               << activate_status.error();
+    ret = 1;
+    auto retry_status = ActivateMissingApexes(activation_list,
+                                              /* is_ota_chroot= */ true);
+    if (!retry_status.ok()) {
+      LOG(ERROR) << retry_status.error();
+    }
   }
 
   // There are a bunch of places that are producing apex-info.xml file.
@@ -2999,7 +3039,11 @@ int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs,
     return 1;
   }
 
-  return 0;
+  return ret;
+}
+
+android::apex::MountedApexDatabase& GetApexDatabaseForTesting() {
+  return gMountedApexes;
 }
 
 }  // namespace apex

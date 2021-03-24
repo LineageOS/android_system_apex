@@ -468,5 +468,30 @@ TEST(ApexFileRepositoryTest, AllApexFilesByName) {
               UnorderedElementsAre(ApexFileEq(ByRef(*compressed_apex))));
 }
 
+TEST(ApexFileRepositoryTest, GetPreInstalledApex) {
+  // Prepare test data.
+  TemporaryDir built_in_dir;
+  fs::copy(GetTestFile("apex.apexd_test.apex"), built_in_dir.path);
+
+  ApexFileRepository instance;
+  ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({built_in_dir.path})));
+
+  auto apex = ApexFile::Open(
+      StringPrintf("%s/apex.apexd_test.apex", built_in_dir.path));
+  ASSERT_RESULT_OK(apex);
+
+  auto ret = instance.GetPreInstalledApex("com.android.apex.test_package");
+  ASSERT_THAT(ret, ApexFileEq(ByRef(*apex)));
+}
+
+TEST(ApexFileRepositoryTest, GetPreInstalledApexNoSuchApexAborts) {
+  ASSERT_DEATH(
+      {
+        ApexFileRepository instance;
+        instance.GetPreInstalledApex("whatever");
+      },
+      "");
+}
+
 }  // namespace apex
 }  // namespace android

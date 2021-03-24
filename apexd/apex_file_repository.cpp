@@ -274,5 +274,12 @@ ApexFileRepository::AllApexFilesByName() const {
   return std::move(result);
 }
 
+std::reference_wrapper<const ApexFile> ApexFileRepository::GetPreInstalledApex(
+    const std::string& name) const {
+  auto it = pre_installed_store_.find(name);
+  CHECK(it != pre_installed_store_.end());
+  return std::cref(it->second);
+}
+
 }  // namespace apex
 }  // namespace android
