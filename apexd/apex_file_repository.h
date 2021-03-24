@@ -101,6 +101,12 @@ class ApexFileRepository final {
                      std::vector<std::reference_wrapper<const ApexFile>>>
   AllApexFilesByName() const;
 
+  // Returns a pre-installed version of apex with the given name. Caller is
+  // expected to check if there is a pre-installed apex with the given name
+  // using |HasPreinstalledVersion| function.
+  std::reference_wrapper<const ApexFile> GetPreInstalledApex(
+      const std::string& name) const;
+
   // Clears ApexFileRepostiry.
   // Only use in tests.
   void Reset() {

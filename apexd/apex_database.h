@@ -199,6 +199,12 @@ class MountedApexDatabase {
 
   void PopulateFromMounts();
 
+  // Resets state of the database. Should only be used in testing.
+  inline void Reset() REQUIRES(!mounted_apexes_mutex_) {
+    std::lock_guard lock(mounted_apexes_mutex_);
+    mounted_apexes_.clear();
+  }
+
  private:
   // A map from package name to mounted apexes.
   // Note: using std::maps to
