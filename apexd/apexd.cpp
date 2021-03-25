@@ -2414,6 +2414,12 @@ std::vector<ApexFile> ProcessCompressedApex(
     const std::vector<std::reference_wrapper<const ApexFile>>& compressed_apex,
     const std::string& decompression_dir, const std::string& active_apex_dir) {
   LOG(INFO) << "Processing compressed APEX";
+
+  // Clean up reserved space before decompressing capex
+  if (auto ret = DeleteDirContent(kOtaReservedDir); !ret.ok()) {
+    LOG(ERROR) << "Failed to clean up reserved space: " << ret.error();
+  }
+
   std::vector<ApexFile> decompressed_apex_list;
   for (const ApexFile& apex_file : compressed_apex) {
     if (!apex_file.IsCompressed()) {
