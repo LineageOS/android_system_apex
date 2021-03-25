@@ -134,6 +134,7 @@ Result<void> ApexFileRepository::AddDataApex(const std::string& data_dir) {
 
     const std::string& name = apex_file->GetManifest().name();
     if (!HasPreInstalledVersion(name)) {
+      LOG(ERROR) << "Skipping " << file << " : no preisntalled apex";
       // Ignore data apex without corresponding pre-installed apex
       continue;
     }
@@ -141,6 +142,8 @@ Result<void> ApexFileRepository::AddDataApex(const std::string& data_dir) {
     if (!pre_installed_public_key.ok() ||
         apex_file->GetBundledPublicKey() != *pre_installed_public_key) {
       // Ignore data apex if public key doesn't match with pre-installed apex
+      LOG(ERROR) << "Skipping " << file
+                 << " : public key doesn't match pre-installed one";
       continue;
     }
 
