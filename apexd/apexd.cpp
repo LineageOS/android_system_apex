@@ -462,7 +462,9 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
   // dm-verity because they are already in the dm-verity protected partition;
   // system. However, note that we don't skip verification to ensure that APEXes
   // are correctly signed.
-  const bool mount_on_verity = !instance.IsPreInstalledApex(apex);
+  const bool mount_on_verity =
+      !instance.IsPreInstalledApex(apex) || instance.IsDecompressedApex(apex);
+
   DmVerityDevice verity_dev;
   loop::LoopbackDeviceUniqueFd loop_for_hash;
   if (mount_on_verity) {
