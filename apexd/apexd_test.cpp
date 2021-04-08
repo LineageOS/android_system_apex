@@ -211,7 +211,7 @@ TEST(ApexdUnitTest, ProcessCompressedApex) {
       "%s/com.android.apex.compressed.v1.capex", built_in_dir.path));
 
   TemporaryDir decompression_dir, active_apex_dir;
-  std::vector<std::reference_wrapper<const ApexFile>> compressed_apex_list;
+  std::vector<ApexFileRef> compressed_apex_list;
   compressed_apex_list.emplace_back(std::cref(*compressed_apex));
   auto return_value = ProcessCompressedApex(
       compressed_apex_list, decompression_dir.path, active_apex_dir.path);
@@ -257,7 +257,7 @@ TEST(ApexdUnitTest, ProcessCompressedApexRunsVerification) {
       built_in_dir.path));
 
   TemporaryDir decompression_dir, active_apex_dir;
-  std::vector<std::reference_wrapper<const ApexFile>> compressed_apex_list;
+  std::vector<ApexFileRef> compressed_apex_list;
   compressed_apex_list.emplace_back(std::cref(*compressed_apex_mismatch_key));
   auto return_value = ProcessCompressedApex(
       compressed_apex_list, decompression_dir.path, active_apex_dir.path);
@@ -363,7 +363,7 @@ void PrepareCompressedApex(const std::string& name,
   fs::copy(GetTestFile(name), built_in_dir);
   auto compressed_apex =
       ApexFile::Open(StringPrintf("%s/%s", built_in_dir.c_str(), name.c_str()));
-  std::vector<std::reference_wrapper<const ApexFile>> compressed_apex_list;
+  std::vector<ApexFileRef> compressed_apex_list;
   compressed_apex_list.emplace_back(std::cref(*compressed_apex));
   auto return_value =
       ProcessCompressedApex(compressed_apex_list, decompressed_dir, data_dir);
