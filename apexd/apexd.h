@@ -41,11 +41,13 @@ namespace apex {
 struct ApexdConfig {
   const char* apex_status_sysprop;
   const char* active_apex_data_dir;
+  const char* apex_hash_tree_dir;
 };
 
 static constexpr const ApexdConfig kDefaultConfig = {
     kApexStatusSysprop,
     kActiveApexPackagesDataDir,
+    kApexHashTreeDir,
 };
 
 class CheckpointInterface;
