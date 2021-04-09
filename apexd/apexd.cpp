@@ -543,8 +543,9 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
 }
 
 std::string GetHashTreeFileName(const ApexFile& apex, bool is_new) {
+  const std::string& id = GetPackageId(apex.GetManifest());
   std::string ret =
-      std::string(kApexHashTreeDir) + "/" + GetPackageId(apex.GetManifest());
+      StringPrintf("%s/%s", gConfig->apex_hash_tree_dir, id.c_str());
   return is_new ? ret + ".new" : ret;
 }
 
@@ -2312,7 +2313,8 @@ void Initialize(CheckpointInterface* checkpoint_service) {
                << status.error();
     return;
   }
-  gMountedApexes.PopulateFromMounts();
+  gMountedApexes.PopulateFromMounts(gConfig->active_apex_data_dir,
+                                    gConfig->apex_hash_tree_dir);
 }
 
 // Note: Pre-installed apex are initialized in Initialize(CheckpointInterface*)
@@ -2795,14 +2797,22 @@ void BootCompletedCleanup() {
 }
 
 int UnmountAll() {
-  gMountedApexes.PopulateFromMounts();
+  gMountedApexes.PopulateFromMounts(gConfig->active_apex_data_dir,
+                                    gConfig->apex_hash_tree_dir);
   int ret = 0;
   gMountedApexes.ForallMountedApexes([&](const std::string& /*package*/,
                                          const MountedApexData& data,
                                          bool latest) {
     LOG(INFO) << "Unmounting " << data.full_path << " mounted on "
               << data.mount_point;
-    if (latest) {
+    auto apex = ApexFile::Open(data.full_path);
+    if (!apex.ok()) {
+      LOG(ERROR) << "Failed to open " << data.full_path << " : "
+                 << apex.error();
+      ret = 1;
+      return;
+    }
+    if (latest && !apex->GetManifest().providesharedapexlibs()) {
       auto pos = data.mount_point.find('@');
       CHECK(pos != std::string::npos);
       std::string bind_mount = data.mount_point.substr(0, pos);
