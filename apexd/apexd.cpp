@@ -1567,13 +1567,12 @@ Result<void> ActivateApexPackages(const std::vector<ApexFileRef>& apexes,
 // A fallback function in case some of the apexes failed to activate. For all
 // such apexes that were coming from /data partition we will attempt to activate
 // their corresponding pre-installed copies.
-Result<void> ActivateMissingApexes(
-    const std::vector<std::reference_wrapper<const ApexFile>>& apexes,
-    bool is_ota_chroot) {
+Result<void> ActivateMissingApexes(const std::vector<ApexFileRef>& apexes,
+                                   bool is_ota_chroot) {
   LOG(INFO) << "Trying to activate pre-installed versions of missing apexes";
   const auto& file_repository = ApexFileRepository::GetInstance();
   const auto& activated_apexes = GetActivePackagesMap();
-  std::vector<std::reference_wrapper<const ApexFile>> fallback_apexes;
+  std::vector<ApexFileRef> fallback_apexes;
   for (const auto& apex_ref : apexes) {
     const auto& apex = apex_ref.get();
     if (apex.GetManifest().providesharedapexlibs()) {
@@ -1589,6 +1588,26 @@ Result<void> ActivateMissingApexes(
     const std::string& name = apex.GetManifest().name();
     if (activated_apexes.find(name) == activated_apexes.end()) {
       fallback_apexes.push_back(file_repository.GetPreInstalledApex(name));
+    }
+  }
+
+  // Process compressed APEX, if any
+  std::vector<ApexFileRef> compressed_apex;
+  for (auto it = fallback_apexes.begin(); it != fallback_apexes.end();) {
+    if (it->get().IsCompressed()) {
+      compressed_apex.emplace_back(*it);
+      it = fallback_apexes.erase(it);
+    } else {
+      it++;
+    }
+  }
+  std::vector<ApexFile> decompressed_apex;
+  if (!compressed_apex.empty()) {
+    decompressed_apex =
+        ProcessCompressedApex(compressed_apex, gConfig->decompression_dir,
+                              gConfig->active_apex_data_dir);
+    for (const ApexFile& apex_file : decompressed_apex) {
+      fallback_apexes.emplace_back(std::cref(apex_file));
     }
   }
   return ActivateApexPackages(fallback_apexes, is_ota_chroot);
@@ -2440,33 +2459,40 @@ std::vector<ApexFile> ProcessCompressedApex(
     });
 
     // Decompress them to kApexDecompressedDir
-    std::string dest_path_decompressed = StringPrintf(
+    const auto dest_path_decompressed = StringPrintf(
         "%s/%s%s", decompression_dir.c_str(),
         GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
-    cleanup.push_back(dest_path_decompressed);
-    auto result = apex_file.Decompress(dest_path_decompressed);
-    if (!result.ok()) {
-      LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
-                 << " " << result.error();
-      continue;
-    }
-
-    // Fix label of decompressed file
-    auto restore = RestoreconPath(dest_path_decompressed);
-    if (!restore.ok()) {
-      LOG(ERROR) << restore.error();
-      continue;
-    }
-
-    // Hardlink to kActiveApexPackagesDataDir so that they get activated on
-    // reboot
     const auto& dest_path_active = StringPrintf(
         "%s/%s%s", active_apex_dir.c_str(),
         GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
+    cleanup.push_back(dest_path_decompressed);
     cleanup.push_back(dest_path_active);
-    if (link(dest_path_decompressed.c_str(), dest_path_active.c_str()) != 0) {
-      LOG(ERROR) << "Failed to link decompressed APEX " << apex_file.GetPath();
-      continue;
+
+    // Decompress only if path doesn't exist. Otherwise reuse existing
+    // decompressed APEX
+    auto path_exists = PathExists(dest_path_decompressed);
+    if (!path_exists.ok() || !*path_exists) {
+      auto result = apex_file.Decompress(dest_path_decompressed);
+      if (!result.ok()) {
+        LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
+                   << " " << result.error();
+        continue;
+      }
+
+      // Fix label of decompressed file
+      auto restore = RestoreconPath(dest_path_decompressed);
+      if (!restore.ok()) {
+        LOG(ERROR) << restore.error();
+        continue;
+      }
+
+      // Hardlink to kActiveApexPackagesDataDir so that they get activated on
+      // reboot
+      if (link(dest_path_decompressed.c_str(), dest_path_active.c_str()) != 0) {
+        LOG(ERROR) << "Failed to link decompressed APEX "
+                   << apex_file.GetPath();
+        continue;
+      }
     }
 
     // Post decompression verification
@@ -2553,7 +2579,9 @@ void OnStart() {
   }
   std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    decompressed_apex = ProcessCompressedApex(compressed_apex);
+    decompressed_apex =
+        ProcessCompressedApex(compressed_apex, gConfig->decompression_dir,
+                              gConfig->active_apex_data_dir);
     for (const ApexFile& apex_file : decompressed_apex) {
       activation_list.emplace_back(std::cref(apex_file));
     }

@@ -559,7 +559,11 @@ Note: compression doesn't provide any optimization in the following scenarios:
 
 ### Compressed APEX file format
 
-TODO(b/183208430): add picture for compressed apex format.
+This is the format of a compressed APEX file.
+
+![Compressed APEX file format](compressed-apex-format.png)
+
+**Figure 2.** Compressed APEX file format
 
 At the top level, a compressed APEX file is a zip file containing the original apex in deflated
 form with compression level of 9 and other files stored uncompressed.
