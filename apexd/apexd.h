@@ -41,12 +41,14 @@ namespace apex {
 struct ApexdConfig {
   const char* apex_status_sysprop;
   const char* active_apex_data_dir;
+  const char* decompression_dir;
   const char* apex_hash_tree_dir;
 };
 
 static constexpr const ApexdConfig kDefaultConfig = {
     kApexStatusSysprop,
     kActiveApexPackagesDataDir,
+    kApexDecompressedDir,
     kApexHashTreeDir,
 };
 
@@ -136,8 +138,7 @@ std::vector<ApexFileRef> SelectApexForActivation(
     const ApexFileRepository& instance);
 std::vector<ApexFile> ProcessCompressedApex(
     const std::vector<ApexFileRef>& compressed_apex,
-    const std::string& decompression_dir = kApexDecompressedDir,
-    const std::string& active_apex_dir = kActiveApexPackagesDataDir);
+    const std::string& decompression_dir, const std::string& active_apex_dir);
 // Notifies system that apexes are activated by setting apexd.status property to
 // "activated".
 // Must only be called during boot (i.e. apexd.status is not "ready" or

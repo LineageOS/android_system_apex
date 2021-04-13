@@ -17,6 +17,7 @@
 package com.android.tests.apex.host;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
@@ -25,6 +26,7 @@ import android.cts.install.lib.host.InstallUtilsHost;
 import android.platform.test.annotations.LargeTest;
 
 import com.android.tradefed.device.DeviceNotAvailableException;
+import com.android.tradefed.device.ITestDevice;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
 import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
 import com.android.tradefed.util.CommandResult;
@@ -38,6 +40,7 @@ import org.junit.runner.RunWith;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -125,6 +128,17 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
         return getDevice().getFileEntry(baseDir).getChildren(false)
                 .stream().map(entry -> entry.getName())
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns the active apex info as optional.
+     */
+    private ITestDevice.ApexInfo getActiveApexInfo(String packageName)
+            throws DeviceNotAvailableException {
+        return getDevice().getActiveApexes().stream().filter(
+                apex -> apex.name.equals(packageName)).findAny().orElseThrow(
+                        () -> new AssertionError(
+                                "Can't find " + packageName + " as active APEX"));
     }
 
     @Test
@@ -273,5 +287,26 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
         pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
 
         assertThat(getFilesInDir(OTA_RESERVED_DIR)).isEmpty();
+    }
+
+    @Test
+    public void testFailsToActivateApexOnDataFallbacksToPreInstalled() throws Exception {
+        // Push a data apex that will fail to activate
+        final File file =
+                mHostUtils.getTestFile("com.android.apex.compressed.v2_manifest_mismatch.apex");
+        getDevice().pushFile(file, APEX_ACTIVE_DIR + COMPRESSED_APEX_PACKAGE_NAME + "@2.apex");
+        // Push a CAPEX which should act as the fallback
+        pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
+        assertWithMessage("Timed out waiting for device to boot").that(
+                getDevice().waitForBootComplete(Duration.ofMinutes(2).toMillis())).isTrue();
+
+        // After reboot pre-installed version of shim apex should be activated, and corrupted
+        // version on /data should be deleted.
+        final ITestDevice.ApexInfo activeApex = getActiveApexInfo(COMPRESSED_APEX_PACKAGE_NAME);
+        assertThat(activeApex.versionCode).isEqualTo(1);
+        assertThat(getDevice().doesFileExist(
+                DECOMPRESSED_DIR_PATH + COMPRESSED_APEX_PACKAGE_NAME + "@1.apex")).isTrue();
+        assertThat(getDevice().doesFileExist(
+                DECOMPRESSED_DIR_PATH + COMPRESSED_APEX_PACKAGE_NAME + "@2.apex")).isFalse();
     }
 }
