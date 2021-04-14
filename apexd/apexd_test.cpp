@@ -216,8 +216,9 @@ TEST(ApexdUnitTest, ProcessCompressedApex) {
   auto return_value = ProcessCompressedApex(
       compressed_apex_list, decompression_dir.path, active_apex_dir.path);
 
-  std::string decompressed_file_path = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", decompression_dir.path);
+  std::string decompressed_file_path =
+      StringPrintf("%s/com.android.apex.compressed@1%s", decompression_dir.path,
+                   kDecompressedApexPackageSuffix);
   // Assert output path is not empty
   auto exists = PathExists(decompressed_file_path);
   ASSERT_TRUE(IsOk(exists));
@@ -232,8 +233,9 @@ TEST(ApexdUnitTest, ProcessCompressedApex) {
   ASSERT_TRUE(*comparison_result);
 
   // Assert that the file is hard linked to active_apex_dir
-  std::string hardlink_file_path = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", active_apex_dir.path);
+  std::string hardlink_file_path =
+      StringPrintf("%s/com.android.apex.compressed@1%s", active_apex_dir.path,
+                   kDecompressedApexPackageSuffix);
   std::error_code ec;
   bool is_hardlink =
       fs::equivalent(decompressed_file_path, hardlink_file_path, ec);
@@ -280,8 +282,9 @@ TEST(ApexdUnitTest, ProcessCompressedApexCanBeCalledMultipleTimes) {
 
   // Capture the creation time of the decompressed APEX
   std::error_code ec;
-  auto decompressed_apex_path = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", decompression_dir.path);
+  auto decompressed_apex_path =
+      StringPrintf("%s/com.android.apex.compressed@1%s", decompression_dir.path,
+                   kDecompressedApexPackageSuffix);
   auto last_write_time_1 = fs::last_write_time(decompressed_apex_path, ec);
   ASSERT_FALSE(ec) << "Failed to capture last write time of "
                    << decompressed_apex_path;
@@ -1521,8 +1524,9 @@ TEST_F(ApexdMountTest, OnStartOnlyPreInstalledCapexes) {
   OnStart();
 
   // Decompressed APEX should be mounted
-  std::string decompressed_active_apex = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", GetDataDir().c_str());
+  std::string decompressed_active_apex =
+      StringPrintf("%s/com.android.apex.compressed@1%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
   UnmountOnTearDown(decompressed_active_apex);
 
   ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
@@ -1606,7 +1610,7 @@ TEST_F(ApexdMountTest, OnStartDataHasSameVersionAsCapex) {
                          });
 }
 
-TEST_F(ApexdMountTest, OnStartSystemHasHigherVersionThanCapex) {
+TEST_F(ApexdMountTest, OnStartSystemHasHigherVersionCapexThanData) {
   MockCheckpointInterface checkpoint_interface;
   // Need to call InitializeVold before calling OnStart
   InitializeVold(&checkpoint_interface);
@@ -1621,8 +1625,9 @@ TEST_F(ApexdMountTest, OnStartSystemHasHigherVersionThanCapex) {
   OnStart();
 
   // Decompressed APEX should be mounted
-  std::string decompressed_active_apex = StringPrintf(
-      "%s/com.android.apex.compressed@2.apex", GetDataDir().c_str());
+  std::string decompressed_active_apex =
+      StringPrintf("%s/com.android.apex.compressed@2%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
   UnmountOnTearDown(decompressed_active_apex);
 
   ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
@@ -1656,8 +1661,9 @@ TEST_F(ApexdMountTest, OnStartFailsToActivateApexOnDataFallsBackToCapex) {
   OnStart();
 
   // Decompressed APEX should be mounted
-  std::string decompressed_active_apex = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", GetDataDir().c_str());
+  std::string decompressed_active_apex =
+      StringPrintf("%s/com.android.apex.compressed@1%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
   UnmountOnTearDown(decompressed_active_apex);
 
   ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
@@ -1694,8 +1700,9 @@ TEST_F(ApexdMountTest, OnStartFallbackToAlreadyDecompressedCapex) {
   OnStart();
 
   // Decompressed APEX should be mounted
-  std::string decompressed_active_apex = StringPrintf(
-      "%s/com.android.apex.compressed@1.apex", GetDataDir().c_str());
+  std::string decompressed_active_apex =
+      StringPrintf("%s/com.android.apex.compressed@1%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
   UnmountOnTearDown(decompressed_active_apex);
 
   ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
@@ -1711,6 +1718,46 @@ TEST_F(ApexdMountTest, OnStartFallbackToAlreadyDecompressedCapex) {
                            ASSERT_EQ(data.full_path, decompressed_active_apex);
                            ASSERT_EQ(data.device_name,
                                      "com.android.apex.compressed@1");
+                         });
+}
+
+// Test scenario when we fallback to capex but it has same version as corrupt
+// data apex
+TEST_F(ApexdMountTest, OnStartFallbackToCapexSameVersion) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  AddPreInstalledApex("com.android.apex.compressed.v2.capex");
+  // Add data apex using the common naming convention for /data/apex/active
+  // directory
+  fs::copy(GetTestFile("com.android.apex.compressed.v2_manifest_mismatch.apex"),
+           GetDataDir() + "/com.android.apex.compressed@2.apex");
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  OnStart();
+
+  // Decompressed APEX should be mounted
+  std::string decompressed_active_apex =
+      StringPrintf("%s/com.android.apex.compressed@2%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
+  UnmountOnTearDown(decompressed_active_apex);
+
+  ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.compressed",
+                                   "/apex/com.android.apex.compressed@2"));
+  auto& db = GetApexDatabaseForTesting();
+  // Check that it was mounted from decompressed apex.
+  db.ForallMountedApexes("com.android.apex.compressed",
+                         [&](const MountedApexData& data, bool latest) {
+                           ASSERT_TRUE(latest);
+                           ASSERT_EQ(data.full_path, decompressed_active_apex);
+                           ASSERT_EQ(data.device_name,
+                                     "com.android.apex.compressed@2");
                          });
 }
 

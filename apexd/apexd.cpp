@@ -1615,18 +1615,6 @@ Result<void> ActivateMissingApexes(const std::vector<ApexFileRef>& apexes,
 
 }  // namespace
 
-// TODO(b/179497746): Avoid scanning APEX here
-Result<void> ScanPackagesDirAndActivate(const char* apex_package_dir) {
-  auto apexes = ScanApexFiles(apex_package_dir);
-  if (!apexes.ok()) {
-    return apexes.error();
-  }
-  std::vector<ApexFileRef> apexes_ref;
-  std::transform(apexes->begin(), apexes->end(), std::back_inserter(apexes_ref),
-                 [](const auto& x) { return std::cref(x); });
-  return ActivateApexPackages(apexes_ref, /* is_ota_chroot= */ false);
-}
-
 /**
  * Snapshots data from base_dir/apexdata/<apex name> to
  * base_dir/apexrollback/<rollback id>/<apex name>.
@@ -2459,12 +2447,14 @@ std::vector<ApexFile> ProcessCompressedApex(
     });
 
     // Decompress them to kApexDecompressedDir
-    const auto dest_path_decompressed = StringPrintf(
-        "%s/%s%s", decompression_dir.c_str(),
-        GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
-    const auto& dest_path_active = StringPrintf(
-        "%s/%s%s", active_apex_dir.c_str(),
-        GetPackageId(apex_file.GetManifest()).c_str(), kApexPackageSuffix);
+    const auto dest_path_decompressed =
+        StringPrintf("%s/%s%s", decompression_dir.c_str(),
+                     GetPackageId(apex_file.GetManifest()).c_str(),
+                     kDecompressedApexPackageSuffix);
+    const auto& dest_path_active =
+        StringPrintf("%s/%s%s", active_apex_dir.c_str(),
+                     GetPackageId(apex_file.GetManifest()).c_str(),
+                     kDecompressedApexPackageSuffix);
     cleanup.push_back(dest_path_decompressed);
     cleanup.push_back(dest_path_active);
 
