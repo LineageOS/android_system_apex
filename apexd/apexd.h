@@ -58,10 +58,6 @@ void SetConfig(const ApexdConfig& config);
 
 android::base::Result<void> ResumeRevertIfNeeded();
 
-// Keep it for now to make otapreopt_chroot keep happy.
-// TODO(b/137086602): remove this function.
-android::base::Result<void> ScanPackagesDirAndActivate(
-    const char* apex_package_dir);
 void ScanStagedSessionsDirAndStage();
 android::base::Result<void> PreinstallPackages(
     const std::vector<std::string>& paths) WARN_UNUSED;
