@@ -1603,9 +1603,7 @@ Result<void> ActivateMissingApexes(const std::vector<ApexFileRef>& apexes,
   }
   std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    decompressed_apex =
-        ProcessCompressedApex(compressed_apex, gConfig->decompression_dir,
-                              gConfig->active_apex_data_dir);
+    decompressed_apex = ProcessCompressedApex(compressed_apex);
     for (const ApexFile& apex_file : decompressed_apex) {
       fallback_apexes.emplace_back(std::cref(apex_file));
     }
@@ -2423,12 +2421,11 @@ std::vector<ApexFileRef> SelectApexForActivation(
  * link it to kActiveApexPackagesDataDir. Returns list of decompressed APEX.
  */
 std::vector<ApexFile> ProcessCompressedApex(
-    const std::vector<ApexFileRef>& compressed_apex,
-    const std::string& decompression_dir, const std::string& active_apex_dir) {
+    const std::vector<ApexFileRef>& compressed_apex) {
   LOG(INFO) << "Processing compressed APEX";
 
   // Clean up reserved space before decompressing capex
-  if (auto ret = DeleteDirContent(kOtaReservedDir); !ret.ok()) {
+  if (auto ret = DeleteDirContent(gConfig->ota_reserved_dir); !ret.ok()) {
     LOG(ERROR) << "Failed to clean up reserved space: " << ret.error();
   }
 
@@ -2448,11 +2445,11 @@ std::vector<ApexFile> ProcessCompressedApex(
 
     // Decompress them to kApexDecompressedDir
     const auto dest_path_decompressed =
-        StringPrintf("%s/%s%s", decompression_dir.c_str(),
+        StringPrintf("%s/%s%s", gConfig->decompression_dir,
                      GetPackageId(apex_file.GetManifest()).c_str(),
                      kDecompressedApexPackageSuffix);
     const auto& dest_path_active =
-        StringPrintf("%s/%s%s", active_apex_dir.c_str(),
+        StringPrintf("%s/%s%s", gConfig->active_apex_data_dir,
                      GetPackageId(apex_file.GetManifest()).c_str(),
                      kDecompressedApexPackageSuffix);
     cleanup.push_back(dest_path_decompressed);
@@ -2569,9 +2566,7 @@ void OnStart() {
   }
   std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    decompressed_apex =
-        ProcessCompressedApex(compressed_apex, gConfig->decompression_dir,
-                              gConfig->active_apex_data_dir);
+    decompressed_apex = ProcessCompressedApex(compressed_apex);
     for (const ApexFile& apex_file : decompressed_apex) {
       activation_list.emplace_back(std::cref(apex_file));
     }
@@ -2991,16 +2986,18 @@ Result<void> ReserveSpaceForCompressedApex(int64_t size,
   return {};
 }
 
-int OnOtaChrootBootstrap(const std::vector<std::string>& built_in_dirs,
-                         const std::string& apex_data_dir) {
+int OnOtaChrootBootstrap() {
   auto& instance = ApexFileRepository::GetInstance();
-  if (auto status = instance.AddPreInstalledApex(built_in_dirs); !status.ok()) {
+  if (auto status = instance.AddPreInstalledApex(gConfig->apex_built_in_dirs);
+      !status.ok()) {
     LOG(ERROR) << "Failed to scan pre-installed apexes from "
-               << Join(built_in_dirs, ',');
+               << Join(gConfig->apex_built_in_dirs, ',');
     return 1;
   }
-  if (auto status = instance.AddDataApex(apex_data_dir); !status.ok()) {
-    LOG(ERROR) << "Failed to scan upgraded apexes from " << apex_data_dir;
+  if (auto status = instance.AddDataApex(gConfig->active_apex_data_dir);
+      !status.ok()) {
+    LOG(ERROR) << "Failed to scan upgraded apexes from "
+               << gConfig->active_apex_data_dir;
     // Failing to scan upgraded apexes is not fatal, since we can still try to
     // run otapreopt using only pre-installed apexes. Worst case, apps will be
     // re-optimized on next boot.
