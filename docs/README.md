@@ -659,16 +659,26 @@ being activated, and it's `versionCode` is `37`.
 For more information see implementation of `OnStart` function in
 `system/apex/apexd/apexd.cpp`.
 
-### Interaction with OTAs
+### Interaction with OTA
 
-#### A/B OTA
+Compressed APEX files have some implications on the OTA delivery and
+application. Since an OTA might contain a compressed APEX file with higher
+version compared to what is currently active on the device, some free space must
+be reserved before rebooting a device to apply an OTA.
 
-TODO(b/183208430): fill in
+To help OTA system, two new binder APIs are exposed by apexd:
 
-#### Non-A/B OTA
+* `calculateSizeForCompressedApex` - calculates size required for decompressing
+  APEX files in OTA package. It can be used to check if device has enough space
+  before downloading an OTA.
+* `reserveSpaceForCompressedApex` - reserves space on the disk that in the
+  future will be used by apexd for decompression of compressed APEX files inside
+  the OTA package.
 
-TODO(b/183208430): fill in
 
+In case of A/B OTA, `apexd` will attempt decompression in the background as part
+of the postinstall OTA routine. If decompression fails, `apexd` will fallback to
+decompressing during the boot that applies the OTA.
 
 ## Alternatives considered when developing APEX
 

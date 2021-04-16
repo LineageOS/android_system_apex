@@ -108,10 +108,10 @@ class ApexFileRepository final {
 
   // Clears ApexFileRepostiry.
   // Only use in tests.
-  void Reset(std::string decompression_dir = kApexDecompressedDir) {
+  void Reset(const std::string& decompression_dir = kApexDecompressedDir) {
     pre_installed_store_.clear();
     data_store_.clear();
-    decompression_dir_ = std::move(decompression_dir);
+    decompression_dir_ = decompression_dir;
   }
 
  private:
