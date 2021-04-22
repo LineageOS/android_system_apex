@@ -2670,21 +2670,6 @@ TEST_F(ApexShimUpdateTest, UpdateToV2Success) {
   ASSERT_TRUE(IsOk(service_->stagePackages({installer.test_file})));
 }
 
-TEST_F(ApexShimUpdateTest, UpdateToV2FailureWrongSHA512) {
-  PrepareTestApexForInstall installer(
-      GetTestFile("com.android.apex.cts.shim.v2_wrong_sha.apex"));
-
-  if (!installer.Prepare()) {
-    FAIL() << GetDebugStr(&installer);
-  }
-
-  const auto& status = service_->stagePackages({installer.test_file});
-  ASSERT_FALSE(IsOk(status));
-  const std::string& error_message =
-      std::string(status.exceptionMessage().c_str());
-  ASSERT_THAT(error_message, HasSubstr("has unexpected SHA512 hash"));
-}
-
 TEST_F(ApexShimUpdateTest, SubmitStagedSessionFailureHasPreInstallHook) {
   PrepareTestApexForInstall installer(
       GetTestFile("com.android.apex.cts.shim.v2_with_pre_install_hook.apex"),

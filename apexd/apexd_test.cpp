@@ -312,6 +312,28 @@ TEST_F(ApexdUnitTest, ProcessCompressedApexCanBeCalledMultipleTimes) {
   ASSERT_EQ(last_write_time_1, last_write_time_2);
 }
 
+// Test that we check for hardlink before skipping decompression
+TEST_F(ApexdUnitTest, ProcessCompressedApexHardlinkMissing) {
+  auto compressed_apex = ApexFile::Open(
+      AddPreInstalledApex("com.android.apex.compressed.v1.capex"));
+
+  std::vector<ApexFileRef> compressed_apex_list;
+  compressed_apex_list.emplace_back(std::cref(*compressed_apex));
+  auto return_value = ProcessCompressedApex(compressed_apex_list);
+  ASSERT_EQ(return_value.size(), 1u);
+
+  // Ensure we can decompress again if /data/apex/active file is deleted
+  auto decompressed_hardlink_path =
+      StringPrintf("%s/com.android.apex.compressed@1%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
+  ASSERT_TRUE(*PathExists(decompressed_hardlink_path));
+  fs::remove(decompressed_hardlink_path);
+  ASSERT_FALSE(*PathExists(decompressed_hardlink_path));
+  // Now try to decompress the same capex again. It should not fail.
+  return_value = ProcessCompressedApex(compressed_apex_list);
+  ASSERT_EQ(return_value.size(), 1u);
+}
+
 TEST_F(ApexdUnitTest, DecompressedApexCleanupDeleteIfActiveFileMissing) {
   // Create decompressed apex in decompression_dir
   fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
@@ -1306,6 +1328,26 @@ TEST_F(ApexdMountTest, OnStartDataHasHigherVersion) {
                                    "/apex/com.android.apex.test_package@2",
                                    "/apex/com.android.apex.test_package_2",
                                    "/apex/com.android.apex.test_package_2@1"));
+}
+
+TEST_F(ApexdMountTest, OnStartDataHasWrongSHA) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  AddPreInstalledApex("com.android.apex.cts.shim.apex");
+  AddDataApex("com.android.apex.cts.shim.v2_wrong_sha.apex");
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  OnStart();
+
+  // Check system shim apex is activated instead of the data one.
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.cts.shim",
+                                   "/apex/com.android.apex.cts.shim@1"));
 }
 
 TEST_F(ApexdMountTest, OnStartDataHasSameVersion) {

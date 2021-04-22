@@ -19,9 +19,6 @@
     },
     {
       "name": "sharedlibs_host_tests"
-    },
-    {
-      "name": "apexd_host_tests"
     }
   ],
   "postsubmit": [
