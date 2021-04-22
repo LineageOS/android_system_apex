@@ -1180,6 +1180,18 @@ Result<void> ActivatePackageImpl(const ApexFile& apex_file,
     return Errorf("Package name {} is not allowed.", manifest.name());
   }
 
+  // Validate upgraded shim apex
+  if (shim::IsShimApex(apex_file) &&
+      !ApexFileRepository::GetInstance().IsPreInstalledApex(apex_file)) {
+    // This is not cheap for shim apex, but it is fine here since we have
+    // upgraded shim apex only during CTS tests.
+    Result<void> result = VerifyPackageBoot(apex_file);
+    if (!result.ok()) {
+      LOG(ERROR) << "Failed to validate shim apex: " << apex_file.GetPath();
+      return result;
+    }
+  }
+
   // See whether we think it's active, and do not allow to activate the same
   // version. Also detect whether this is the highest version.
   // We roll this into a single check.
@@ -2012,9 +2024,19 @@ Result<void> StagePackages(const std::vector<std::string>& tmp_paths) {
   //       it will open ApexFiles multiple times.
 
   // 1) Verify all packages.
-  auto verify_status = VerifyPackages(tmp_paths, VerifyPackageBoot);
-  if (!verify_status.ok()) {
-    return verify_status.error();
+  Result<std::vector<ApexFile>> apex_files = OpenApexFiles(tmp_paths);
+  if (!apex_files.ok()) {
+    return apex_files.error();
+  }
+  for (const ApexFile& apex_file : *apex_files) {
+    if (shim::IsShimApex(apex_file)) {
+      // Shim apex will be validated on every boot. No need to do it here.
+      continue;
+    }
+    Result<void> result = VerifyPackageBoot(apex_file);
+    if (!result.ok()) {
+      return result.error();
+    }
   }
 
   // Make sure that kActiveApexPackagesDataDir exists.
@@ -2044,16 +2066,12 @@ Result<void> StagePackages(const std::vector<std::string>& tmp_paths) {
   auto scope_guard = android::base::make_scope_guard(deleter);
 
   std::unordered_set<std::string> staged_packages;
-  for (const std::string& path : tmp_paths) {
-    Result<ApexFile> apex_file = ApexFile::Open(path);
-    if (!apex_file.ok()) {
-      return apex_file.error();
-    }
+  for (const ApexFile& apex_file : *apex_files) {
     // First promote new hashtree file to the one that will be used when
     // mounting apex.
-    std::string new_hashtree_file = GetHashTreeFileName(*apex_file,
+    std::string new_hashtree_file = GetHashTreeFileName(apex_file,
                                                         /* is_new = */ true);
-    std::string old_hashtree_file = GetHashTreeFileName(*apex_file,
+    std::string old_hashtree_file = GetHashTreeFileName(apex_file,
                                                         /* is_new = */ false);
     if (access(new_hashtree_file.c_str(), F_OK) == 0) {
       if (TEMP_FAILURE_RETRY(rename(new_hashtree_file.c_str(),
@@ -2064,7 +2082,7 @@ Result<void> StagePackages(const std::vector<std::string>& tmp_paths) {
       changed_hashtree_files.emplace_back(std::move(old_hashtree_file));
     }
     // And only then move apex to /data/apex/active.
-    std::string dest_path = StageDestPath(*apex_file);
+    std::string dest_path = StageDestPath(apex_file);
     if (access(dest_path.c_str(), F_OK) == 0) {
       LOG(DEBUG) << dest_path << " already exists. Deleting";
       if (TEMP_FAILURE_RETRY(unlink(dest_path.c_str())) != 0) {
@@ -2072,14 +2090,14 @@ Result<void> StagePackages(const std::vector<std::string>& tmp_paths) {
       }
     }
 
-    if (link(apex_file->GetPath().c_str(), dest_path.c_str()) != 0) {
-      return ErrnoError() << "Unable to link " << apex_file->GetPath() << " to "
+    if (link(apex_file.GetPath().c_str(), dest_path.c_str()) != 0) {
+      return ErrnoError() << "Unable to link " << apex_file.GetPath() << " to "
                           << dest_path;
     }
     staged_files.insert(dest_path);
-    staged_packages.insert(apex_file->GetManifest().name());
+    staged_packages.insert(apex_file.GetManifest().name());
 
-    LOG(DEBUG) << "Success linking " << apex_file->GetPath() << " to "
+    LOG(DEBUG) << "Success linking " << apex_file.GetPath() << " to "
                << dest_path;
   }
 
@@ -2457,8 +2475,15 @@ std::vector<ApexFile> ProcessCompressedApex(
 
     // Decompress only if path doesn't exist. Otherwise reuse existing
     // decompressed APEX
-    auto path_exists = PathExists(dest_path_decompressed);
-    if (!path_exists.ok() || !*path_exists) {
+    auto decompressed_path_exists = PathExists(dest_path_decompressed);
+    // TODO(b/185886528): Stop hardlinking to /data/apex/active
+    auto hardlink_path_exists = PathExists(dest_path_active);
+    if (!decompressed_path_exists.ok() || !*decompressed_path_exists ||
+        !hardlink_path_exists.ok() || !*hardlink_path_exists) {
+      // Clean up before attempting to decompress
+      RemoveFileIfExists(dest_path_decompressed);
+      RemoveFileIfExists(dest_path_active);
+
       auto result = apex_file.Decompress(dest_path_decompressed);
       if (!result.ok()) {
         LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
@@ -2480,6 +2505,8 @@ std::vector<ApexFile> ProcessCompressedApex(
                    << apex_file.GetPath();
         continue;
       }
+    } else {
+      LOG(INFO) << "Skipping decompression for " << apex_file.GetPath();
     }
 
     // Post decompression verification
