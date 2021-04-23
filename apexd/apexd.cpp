@@ -1404,7 +1404,7 @@ std::vector<ApexFile> GetFactoryPackages() {
     }
   }
 
-  for (const auto& dir : kApexPackageBuiltinDirs) {
+  for (const auto& dir : gConfig->apex_built_in_dirs) {
     auto all_apex_files = FindFilesBySuffix(
         dir, {kApexPackageSuffix, kCompressedApexPackageSuffix});
     if (!all_apex_files.ok()) {
@@ -1615,7 +1615,8 @@ Result<void> ActivateMissingApexes(const std::vector<ApexFileRef>& apexes,
   }
   std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    decompressed_apex = ProcessCompressedApex(compressed_apex);
+    decompressed_apex =
+        ProcessCompressedApex(compressed_apex, /* is_ota_chroot= */ false);
     for (const ApexFile& apex_file : decompressed_apex) {
       fallback_apexes.emplace_back(std::cref(apex_file));
     }
@@ -2337,6 +2338,7 @@ void Initialize(CheckpointInterface* checkpoint_service) {
     return;
   }
   gMountedApexes.PopulateFromMounts(gConfig->active_apex_data_dir,
+                                    gConfig->decompression_dir,
                                     gConfig->apex_hash_tree_dir);
 }
 
@@ -2435,11 +2437,14 @@ std::vector<ApexFileRef> SelectApexForActivation(
 }
 
 /**
- * For each compressed APEX, decompress it to kApexDecompressedDir and hard
- * link it to kActiveApexPackagesDataDir. Returns list of decompressed APEX.
+ * For each compressed APEX, decompress it to kApexDecompressedDir. If we
+ * are decompressing during boot then hard link it to |active_apex_data_dir|
+ * and return the hardlinked apex, other return the decompressed APEX.
+ *
+ * Returns list of decompressed APEX.
  */
 std::vector<ApexFile> ProcessCompressedApex(
-    const std::vector<ApexFileRef>& compressed_apex) {
+    const std::vector<ApexFileRef>& compressed_apex, bool is_ota_chroot) {
   LOG(INFO) << "Processing compressed APEX";
 
   // Clean up reserved space before decompressing capex
@@ -2461,28 +2466,33 @@ std::vector<ApexFile> ProcessCompressedApex(
       }
     });
 
-    // Decompress them to kApexDecompressedDir
-    const auto dest_path_decompressed =
-        StringPrintf("%s/%s%s", gConfig->decompression_dir,
-                     GetPackageId(apex_file.GetManifest()).c_str(),
-                     kDecompressedApexPackageSuffix);
-    const auto& dest_path_active =
-        StringPrintf("%s/%s%s", gConfig->active_apex_data_dir,
-                     GetPackageId(apex_file.GetManifest()).c_str(),
-                     kDecompressedApexPackageSuffix);
+    const auto suffix_to_use =
+        is_ota_chroot ? kOtaApexPackageSuffix : kDecompressedApexPackageSuffix;
+    const auto dest_path_decompressed = StringPrintf(
+        "%s/%s%s", gConfig->decompression_dir,
+        GetPackageId(apex_file.GetManifest()).c_str(), suffix_to_use);
+    // If we are decompressing during boot, then we hardlink it to
+    // active apex directory and return that ApexFile
+    const auto return_apex_file_path =
+        is_ota_chroot
+            ? dest_path_decompressed
+            : StringPrintf("%s/%s%s", gConfig->active_apex_data_dir,
+                           GetPackageId(apex_file.GetManifest()).c_str(),
+                           suffix_to_use);
+
     cleanup.push_back(dest_path_decompressed);
-    cleanup.push_back(dest_path_active);
+    cleanup.push_back(return_apex_file_path);
 
     // Decompress only if path doesn't exist. Otherwise reuse existing
     // decompressed APEX
     auto decompressed_path_exists = PathExists(dest_path_decompressed);
     // TODO(b/185886528): Stop hardlinking to /data/apex/active
-    auto hardlink_path_exists = PathExists(dest_path_active);
+    auto return_file_exists = PathExists(return_apex_file_path);
     if (!decompressed_path_exists.ok() || !*decompressed_path_exists ||
-        !hardlink_path_exists.ok() || !*hardlink_path_exists) {
+        !return_file_exists.ok() || !*return_file_exists) {
       // Clean up before attempting to decompress
       RemoveFileIfExists(dest_path_decompressed);
-      RemoveFileIfExists(dest_path_active);
+      RemoveFileIfExists(return_apex_file_path);
 
       auto result = apex_file.Decompress(dest_path_decompressed);
       if (!result.ok()) {
@@ -2498,35 +2508,39 @@ std::vector<ApexFile> ProcessCompressedApex(
         continue;
       }
 
-      // Hardlink to kActiveApexPackagesDataDir so that they get activated on
-      // reboot
-      if (link(dest_path_decompressed.c_str(), dest_path_active.c_str()) != 0) {
-        LOG(ERROR) << "Failed to link decompressed APEX "
-                   << apex_file.GetPath();
-        continue;
+      // TODO(b/185886528): Stop hardlinking to /data/apex/active
+      if (!is_ota_chroot) {
+        // Hardlink to kActiveApexPackagesDataDir so that they get activated on
+        // reboot
+        if (link(dest_path_decompressed.c_str(),
+                 return_apex_file_path.c_str()) != 0) {
+          LOG(ERROR) << "Failed to link decompressed APEX "
+                     << dest_path_decompressed << " to "
+                     << return_apex_file_path;
+          continue;
+        }
       }
     } else {
       LOG(INFO) << "Skipping decompression for " << apex_file.GetPath();
     }
 
     // Post decompression verification
-    auto hardlinked_apex = ApexFile::Open(dest_path_active);
-    if (!hardlinked_apex.ok()) {
-      LOG(ERROR) << "Failed to open hard-linked APEX : " << dest_path_active
-                 << hardlinked_apex.error();
+    auto return_apex = ApexFile::Open(return_apex_file_path);
+    if (!return_apex.ok()) {
+      LOG(ERROR) << "Failed to open decompressed APEX : "
+                 << return_apex_file_path << " " << return_apex.error();
       continue;
     }
-    if (apex_file.GetBundledPublicKey() !=
-        hardlinked_apex->GetBundledPublicKey()) {
+    if (apex_file.GetBundledPublicKey() != return_apex->GetBundledPublicKey()) {
       LOG(ERROR) << "Public key of compressed APEX is different than original "
                     "APEX for "
-                 << hardlinked_apex->GetPath();
+                 << return_apex->GetPath();
       continue;
     }
 
     // Decompressed APEX has been successfully processed. Accept it.
     scope_guard.Disable();
-    decompressed_apex_list.emplace_back(std::move(*hardlinked_apex));
+    decompressed_apex_list.emplace_back(std::move(*return_apex));
   }
   return std::move(decompressed_apex_list);
 }
@@ -2593,7 +2607,8 @@ void OnStart() {
   }
   std::vector<ApexFile> decompressed_apex;
   if (!compressed_apex.empty()) {
-    decompressed_apex = ProcessCompressedApex(compressed_apex);
+    decompressed_apex =
+        ProcessCompressedApex(compressed_apex, /* is_ota_chroot= */ false);
     for (const ApexFile& apex_file : decompressed_apex) {
       activation_list.emplace_back(std::cref(apex_file));
     }
@@ -2838,6 +2853,7 @@ void BootCompletedCleanup() {
 
 int UnmountAll() {
   gMountedApexes.PopulateFromMounts(gConfig->active_apex_data_dir,
+                                    gConfig->decompression_dir,
                                     gConfig->apex_hash_tree_dir);
   int ret = 0;
   gMountedApexes.ForallMountedApexes([&](const std::string& /*package*/,
@@ -3038,9 +3054,34 @@ int OnOtaChrootBootstrap() {
 
   auto activation_list =
       SelectApexForActivation(instance.AllApexFilesByName(), instance);
+
+  // TODO(b/179497746): This is the third time we are duplicating this code
+  // block. This will be easier to dedup once we start opening ApexFiles via
+  // ApexFileRepository. That way, ProcessCompressedApex can return list of
+  // ApexFileRef, instead of ApexFile.
+
+  // Process compressed APEX, if any
+  std::vector<ApexFileRef> compressed_apex;
+  for (auto it = activation_list.begin(); it != activation_list.end();) {
+    if (it->get().IsCompressed()) {
+      compressed_apex.emplace_back(*it);
+      it = activation_list.erase(it);
+    } else {
+      it++;
+    }
+  }
+  std::vector<ApexFile> decompressed_apex;
+  if (!compressed_apex.empty()) {
+    decompressed_apex =
+        ProcessCompressedApex(compressed_apex, /* is_ota_chroot= */ true);
+
+    for (const ApexFile& apex_file : decompressed_apex) {
+      activation_list.emplace_back(std::cref(apex_file));
+    }
+  }
+
   auto activate_status = ActivateApexPackages(activation_list,
                                               /* is_ota_chroot= */ true);
-
   if (!activate_status.ok()) {
     LOG(ERROR) << "Failed to activate apex packages : "
                << activate_status.error();
@@ -3055,28 +3096,18 @@ int OnOtaChrootBootstrap() {
   // We should consolidate the logic in one function and make all other places
   // use it.
   auto active_apexes = GetActivePackages();
-  // We can't use GetFactoryPackages here, since it scans
-  // kApexPackageBuiltinDirs. Once that is fixed, code here can be simplified.
-  std::vector<ApexFile> inactive_apexes;
-  for (const auto& pre_installed_apex : instance.GetPreInstalledApexFiles()) {
-    if (std::none_of(active_apexes.begin(), active_apexes.end(),
-                     [&pre_installed_apex](const auto& active_apex) {
-                       return pre_installed_apex.get().GetPath() ==
-                              active_apex.GetPath();
-                     })) {
-      // We need to do re-open the file here because CollectApexInfoList
-      // accepts std::vector<ApexFile> :(
-      auto apex = ApexFile::Open(pre_installed_apex.get().GetPath());
-      if (apex.ok()) {
-        inactive_apexes.push_back(std::move(*apex));
-      } else {
-        LOG(ERROR) << "Failed to open " << pre_installed_apex.get().GetPath()
-                   << " : " << apex.error();
-      }
-    }
-  }
+  std::vector<ApexFile> inactive_apexes = GetFactoryPackages();
+  auto new_end = std::remove_if(
+      inactive_apexes.begin(), inactive_apexes.end(),
+      [&active_apexes](const ApexFile& apex) {
+        return std::any_of(active_apexes.begin(), active_apexes.end(),
+                           [&apex](const ApexFile& active_apex) {
+                             return apex.GetPath() == active_apex.GetPath();
+                           });
+      });
+  inactive_apexes.erase(new_end, inactive_apexes.end());
   std::stringstream xml;
-  CollectApexInfoList(xml, GetActivePackages(), inactive_apexes);
+  CollectApexInfoList(xml, active_apexes, inactive_apexes);
   std::string file_name = StringPrintf("%s/%s", kApexRoot, kApexInfoList);
   unique_fd fd(TEMP_FAILURE_RETRY(
       open(file_name.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644)));

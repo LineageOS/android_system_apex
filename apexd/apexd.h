@@ -133,7 +133,7 @@ std::vector<ApexFileRef> SelectApexForActivation(
     const std::unordered_map<std::string, std::vector<ApexFileRef>>& all_apex,
     const ApexFileRepository& instance);
 std::vector<ApexFile> ProcessCompressedApex(
-    const std::vector<ApexFileRef>& compressed_apex);
+    const std::vector<ApexFileRef>& compressed_apex, bool is_ota_chroot);
 // Notifies system that apexes are activated by setting apexd.status property to
 // "activated".
 // Must only be called during boot (i.e. apexd.status is not "ready" or
