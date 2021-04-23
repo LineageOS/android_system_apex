@@ -54,6 +54,7 @@ static constexpr const char* kApexPackageSuffix = ".apex";
 static constexpr const char* kCompressedApexPackageSuffix = ".capex";
 static constexpr const char* kDecompressedApexPackageSuffix =
     ".decompressed.apex";
+static constexpr const char* kOtaApexPackageSuffix = ".ota.apex";
 
 static constexpr const char* kManifestFilenameJson = "apex_manifest.json";
 static constexpr const char* kManifestFilenamePb = "apex_manifest.pb";
