@@ -58,7 +58,6 @@ void SetConfig(const ApexdConfig& config);
 
 android::base::Result<void> ResumeRevertIfNeeded();
 
-void ScanStagedSessionsDirAndStage();
 android::base::Result<void> PreinstallPackages(
     const std::vector<std::string>& paths) WARN_UNUSED;
 android::base::Result<void> PostinstallPackages(
@@ -94,7 +93,6 @@ android::base::Result<ApexFile> GetActivePackage(
 std::vector<ApexFile> GetFactoryPackages();
 
 android::base::Result<void> AbortStagedSession(const int session_id);
-android::base::Result<void> AbortActiveSession();
 
 android::base::Result<void> SnapshotCeData(const int user_id,
                                            const int rollback_id,
