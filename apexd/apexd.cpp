@@ -1467,6 +1467,7 @@ Result<void> AbortStagedSession(int session_id) {
 namespace {
 
 // TODO(b/179497746): Avoid scanning apex directly here
+// Only used in OnBootstrap. Should we remove this function?
 Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir,
                                             bool include_compressed = false) {
   LOG(INFO) << "Scanning " << apex_package_dir << " looking for APEX packages.";
@@ -1486,7 +1487,6 @@ Result<std::vector<ApexFile>> ScanApexFiles(const char* apex_package_dir,
   }
   std::vector<ApexFile> ret;
   for (const auto& name : *scan) {
-    LOG(INFO) << "Found " << name;
     Result<ApexFile> apex_file = ApexFile::Open(name);
     if (!apex_file.ok()) {
       LOG(ERROR) << "Failed to scan " << name << " : " << apex_file.error();
@@ -2457,7 +2457,7 @@ std::vector<ApexFile> ProcessCompressedApex(
     if (!apex_file.IsCompressed()) {
       continue;
     }
-
+    LOG(INFO) << "Processing compressed APEX " << apex_file.GetPath();
     // Files to clean up if processing fails for any reason
     std::vector<std::string> cleanup;
     auto scope_guard = android::base::make_scope_guard([&cleanup] {
