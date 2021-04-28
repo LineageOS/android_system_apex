@@ -32,6 +32,7 @@
 #include "apexd_utils.h"
 
 #include "com_android_apex.h"
+#include "gmock/gmock-matchers.h"
 
 namespace android {
 namespace apex {
@@ -48,6 +49,7 @@ using android::base::Result;
 using android::base::StringPrintf;
 using com::android::apex::testing::ApexInfoXmlEq;
 using ::testing::ByRef;
+using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::testing::StartsWith;
 using ::testing::UnorderedElementsAre;
@@ -285,12 +287,48 @@ TEST_F(ApexdUnitTest, ProcessCompressedApex) {
 TEST_F(ApexdUnitTest, ProcessCompressedApexRunsVerification) {
   auto compressed_apex_mismatch_key = ApexFile::Open(AddPreInstalledApex(
       "com.android.apex.compressed_key_mismatch_with_original.capex"));
+  auto compressed_apex_version_mismatch = ApexFile::Open(
+      AddPreInstalledApex("com.android.apex.compressed.v1_with_v2_apex.capex"));
 
   std::vector<ApexFileRef> compressed_apex_list;
   compressed_apex_list.emplace_back(std::cref(*compressed_apex_mismatch_key));
+  compressed_apex_list.emplace_back(
+      std::cref(*compressed_apex_version_mismatch));
   auto return_value =
       ProcessCompressedApex(compressed_apex_list, /* is_ota_chroot= */ false);
   ASSERT_EQ(return_value.size(), 0u);
+}
+
+TEST_F(ApexdUnitTest, ValidateDecompressedApex) {
+  auto capex = ApexFile::Open(
+      AddPreInstalledApex("com.android.apex.compressed.v1.capex"));
+  auto decompressed_v1 = ApexFile::Open(
+      AddDataApex("com.android.apex.compressed.v1_original.apex"));
+
+  auto result =
+      ValidateDecompressedApex(std::cref(*capex), std::cref(*decompressed_v1));
+  ASSERT_TRUE(IsOk(result));
+
+  // Validation checks version
+  auto decompressed_v2 = ApexFile::Open(
+      AddDataApex("com.android.apex.compressed.v2_original.apex"));
+  result =
+      ValidateDecompressedApex(std::cref(*capex), std::cref(*decompressed_v2));
+  ASSERT_FALSE(IsOk(result));
+  ASSERT_THAT(
+      result.error().message(),
+      HasSubstr(
+          "Compressed APEX has different version than decompressed APEX"));
+
+  // Validation checks key
+  auto capex_different_key = ApexFile::Open(
+      AddDataApex("com.android.apex.compressed_different_key.capex"));
+  result = ValidateDecompressedApex(std::cref(*capex_different_key),
+                                    std::cref(*decompressed_v1));
+  ASSERT_FALSE(IsOk(result));
+  ASSERT_THAT(
+      result.error().message(),
+      HasSubstr("Public key of compressed APEX is different than original"));
 }
 
 TEST_F(ApexdUnitTest, ProcessCompressedApexCanBeCalledMultipleTimes) {
@@ -380,6 +418,41 @@ TEST_F(ApexdUnitTest, ProcessCompressedApexOnOtaChroot) {
   auto apex_file = ApexFile::Open(decompressed_file_path);
   ASSERT_THAT(return_value,
               UnorderedElementsAre(ApexFileEq(ByRef(*apex_file))));
+}
+
+// When decompressing APEX, reuse existing OTA APEX
+TEST_F(ApexdUnitTest, ProcessCompressedApexReuseOtaApex) {
+  // Push a compressed APEX that will fail post-decompression verification
+  auto compressed_apex = ApexFile::Open(
+      AddPreInstalledApex("com.android.apex.compressed.v1_with_v2_apex.capex"));
+
+  std::vector<ApexFileRef> compressed_apex_list;
+  compressed_apex_list.emplace_back(std::cref(*compressed_apex));
+
+  // If we try to decompress capex directly, it should fail since the capex
+  // pushed is faulty and cannot be decompressed
+  auto return_value =
+      ProcessCompressedApex(compressed_apex_list, /* is_ota_chroot= */ false);
+  ASSERT_EQ(return_value.size(), 0u);
+
+  // But, if there is an ota_apex present for reuse, it should reuse that
+  // and avoid decompressing the faulty capex
+
+  // Push an OTA apex that should be reused to skip decompression
+  auto ota_apex_path =
+      StringPrintf("%s/com.android.apex.compressed@1%s",
+                   GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
+  fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
+           ota_apex_path);
+  return_value =
+      ProcessCompressedApex(compressed_apex_list, /* is_ota_chroot= */ false);
+  ASSERT_EQ(return_value.size(), 1u);
+
+  // Ota Apex should be cleaned up
+  ASSERT_FALSE(*PathExists(ota_apex_path));
+  ASSERT_EQ(return_value[0].GetPath(),
+            StringPrintf("%s/com.android.apex.compressed@1%s",
+                         GetDataDir().c_str(), kDecompressedApexPackageSuffix));
 }
 
 TEST_F(ApexdUnitTest, DecompressedApexCleanupDeleteIfActiveFileMissing) {
