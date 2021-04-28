@@ -2494,11 +2494,27 @@ std::vector<ApexFile> ProcessCompressedApex(
       RemoveFileIfExists(dest_path_decompressed);
       RemoveFileIfExists(return_apex_file_path);
 
-      auto result = apex_file.Decompress(dest_path_decompressed);
-      if (!result.ok()) {
-        LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
-                   << " " << result.error();
-        continue;
+      // Try to avoid decompression if there is an ota_apex ready to be reused
+      // and we are not booting from chroot
+      auto ota_apex_path = StringPrintf(
+          "%s/%s%s", gConfig->decompression_dir,
+          GetPackageId(apex_file.GetManifest()).c_str(), kOtaApexPackageSuffix);
+      auto ota_path_exists = PathExists(ota_apex_path);
+      if (!is_ota_chroot && ota_path_exists.ok() && *ota_path_exists) {
+        LOG(INFO) << "Renaming " << ota_apex_path << " to "
+                  << dest_path_decompressed;
+        if (rename(ota_apex_path.c_str(), dest_path_decompressed.c_str()) !=
+            0) {
+          PLOG(ERROR) << "Failed to rename file " << ota_apex_path;
+          continue;
+        }
+      } else {
+        auto result = apex_file.Decompress(dest_path_decompressed);
+        if (!result.ok()) {
+          LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
+                     << " " << result.error();
+          continue;
+        }
       }
 
       // Fix label of decompressed file
@@ -2524,17 +2540,18 @@ std::vector<ApexFile> ProcessCompressedApex(
       LOG(INFO) << "Skipping decompression for " << apex_file.GetPath();
     }
 
-    // Post decompression verification
+    // Post decompression validation
     auto return_apex = ApexFile::Open(return_apex_file_path);
     if (!return_apex.ok()) {
       LOG(ERROR) << "Failed to open decompressed APEX : "
                  << return_apex_file_path << " " << return_apex.error();
       continue;
     }
-    if (apex_file.GetBundledPublicKey() != return_apex->GetBundledPublicKey()) {
-      LOG(ERROR) << "Public key of compressed APEX is different than original "
-                    "APEX for "
-                 << return_apex->GetPath();
+    auto validation_result =
+        ValidateDecompressedApex(apex_file, std::cref(*return_apex));
+    if (!validation_result.ok()) {
+      LOG(ERROR) << "Validation failed for decompressed APEX "
+                 << return_apex_file_path << " " << validation_result.error();
       continue;
     }
 
@@ -2543,6 +2560,23 @@ std::vector<ApexFile> ProcessCompressedApex(
     decompressed_apex_list.emplace_back(std::move(*return_apex));
   }
   return std::move(decompressed_apex_list);
+}
+
+Result<void> ValidateDecompressedApex(const ApexFile& capex,
+                                      const ApexFile& apex) {
+  if (capex.GetBundledPublicKey() != apex.GetBundledPublicKey()) {
+    return Error()
+           << "Public key of compressed APEX is different than original "
+              "APEX for "
+           << apex.GetPath();
+  }
+  if (capex.GetManifest().version() != apex.GetManifest().version()) {
+    return Error()
+           << "Compressed APEX has different version than decompressed APEX"
+           << apex.GetPath();
+  }
+
+  return {};
 }
 
 void OnStart() {

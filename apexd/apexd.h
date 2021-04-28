@@ -132,6 +132,9 @@ std::vector<ApexFileRef> SelectApexForActivation(
     const ApexFileRepository& instance);
 std::vector<ApexFile> ProcessCompressedApex(
     const std::vector<ApexFileRef>& compressed_apex, bool is_ota_chroot);
+// Validate |apex| is same as |capex|
+android::base::Result<void> ValidateDecompressedApex(const ApexFile& capex,
+                                                     const ApexFile& apex);
 // Notifies system that apexes are activated by setting apexd.status property to
 // "activated".
 // Must only be called during boot (i.e. apexd.status is not "ready" or

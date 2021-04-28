@@ -352,6 +352,6 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
         getDevice().executeShellCommand("rm -rf /system/apex/"
                 + COMPRESSED_APEX_PACKAGE_NAME + "*apex");
         pushTestApex(COMPRESSED_APEX_PACKAGE_NAME + ".v1.capex");
-        runPhase("testDecompressedApexVersionDifferentThanCapex");
+        runPhase("testDecompressedApexVersionAlwaysHasSameVersionAsCapex");
     }
 }
