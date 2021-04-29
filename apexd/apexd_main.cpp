@@ -31,8 +31,6 @@
 #include <android-base/properties.h>
 
 namespace {
-android::apex::ApexdLifecycle& lifecycle =
-    android::apex::ApexdLifecycle::GetInstance();
 
 int HandleSubcommand(char** argv) {
   if (strcmp("--pre-install", argv[1]) == 0) {
@@ -118,11 +116,21 @@ int main(int /*argc*/, char** argv) {
 
   android::apex::SetConfig(android::apex::kDefaultConfig);
 
+  android::apex::ApexdLifecycle& lifecycle =
+      android::apex::ApexdLifecycle::GetInstance();
+  bool booting = lifecycle.IsBooting();
+
   const bool has_subcommand = argv[1] != nullptr;
   if (!android::sysprop::ApexProperties::updatable().value_or(false)) {
     LOG(INFO) << "This device does not support updatable APEX. Exiting";
+    if (!booting) {
+      // We've finished booting, but for some reason somebody tried to start
+      // apexd. Simply exit.
+      return 0;
+    }
+
     if (!has_subcommand) {
-      // mark apexd as activated so that init can proceed
+      // Mark apexd as activated so that init can proceed.
       android::apex::OnAllPackagesActivated(/*is_bootstrap=*/false);
     } else if (strcmp("--snapshotde", argv[1]) == 0) {
       // mark apexd as ready
@@ -146,7 +154,6 @@ int main(int /*argc*/, char** argv) {
   }
   android::apex::Initialize(vold_service);
 
-  bool booting = lifecycle.IsBooting();
   if (booting) {
     if (auto res = android::apex::MigrateSessionsDirIfNeeded(); !res.ok()) {
       LOG(ERROR) << "Failed to migrate sessions to /metadata partition : "
