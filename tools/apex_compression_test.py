@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -133,6 +134,26 @@ def get_sha1sum(file_path):
 class ApexCompressionTest(unittest.TestCase):
   def setUp(self):
     self._to_cleanup = []
+    self._get_host_tools(os.path.join(get_current_dir(),
+            'apex_compression_test_host_tools.zip'))
+
+  def _get_host_tools(self, host_tools_file_path):
+    dir_name = tempfile.mkdtemp(prefix=self._testMethodName+'_host_tools_')
+    self._to_cleanup.append(dir_name)
+    if os.path.isfile(host_tools_file_path):
+      with ZipFile(host_tools_file_path, 'r') as zip_obj:
+        zip_obj.extractall(path=dir_name)
+
+    files = {}
+    for i in ['soong_zip']:
+      file_path = os.path.join(dir_name, 'bin', i)
+      if os.path.exists(file_path):
+        os.chmod(file_path, stat.S_IRUSR | stat.S_IXUSR)
+        files[i] = file_path
+      else:
+        files[i] = i
+    self.host_tools = files
+    self.host_tools_path = os.path.join(dir_name, 'bin')
 
   def tearDown(self):
     if not DEBUG_TEST:
@@ -147,8 +168,8 @@ class ApexCompressionTest(unittest.TestCase):
 
   def _run_apex_compression_tool(self, args):
     cmd = ['apex_compression_tool']
-    os.environ['APEX_COMPRESSION_TOOL_PATH'] = (
-        'out/soong/host/linux-x86/bin:prebuilts/sdk/tools/linux/bin')
+    os.environ['APEX_COMPRESSION_TOOL_PATH'] = ( self.host_tools_path +
+        ':out/soong/host/linux-x86/bin:prebuilts/sdk/tools/linux/bin')
     cmd.extend(args)
     run_host_command(cmd, True)
 
