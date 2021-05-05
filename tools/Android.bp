@@ -62,6 +62,7 @@ python_test_host {
     ],
     data: [
         ":com.android.example.apex",
+        ":apex_compression_test_host_tools"
     ],
     version: {
         py2: {
@@ -72,8 +73,26 @@ python_test_host {
         },
     },
     test_suites: ["general-tests"],
-    required: [
-        "apex_compression_tool",
-        "deapexer",
-    ],
+    required: ["apex_compression_test_host_tools"],
 }
+
+genrule {
+    name: "apex_compression_test_host_tools",
+    srcs: [
+        ":current_android_jar",
+    ],
+    out: ["apex_compression_test_host_tools.zip"],
+    tools: ["apex_compression_tool", "deapexer", "soong_zip"],
+    cmd: "HOST_OUT_BIN=$$(dirname $(location apex_compression_tool)) && " +
+        "HOST_SOONG_OUT=$$(dirname $$(dirname $$HOST_OUT_BIN)) && " +
+        "BASE=$(genDir)/binary_files && " +
+        "BIN=$$BASE/bin && " +
+        "mkdir -p $$BIN && " +
+        "cp $$(echo $(in) | tr \" \" \"\\n\" | grep -v apex) $$BIN && " +
+        "cp $(location apex_compression_tool) $$BIN && " +
+        "cp $(location deapexer) $$BIN && " +
+        "cp $(location soong_zip) $$BIN && " +
+        "$(location soong_zip) -C $$BASE -D $$BASE -o $(out) && " +
+        "rm -rf $$BASE",
+}
+
