@@ -194,6 +194,9 @@ cc_library_static {
   static_libs: [
     "libapexd",
   ],
+  cflags: [
+    "-DANDROID_UTILS_REF_BASE_DISABLE_IMPLICIT_CONSTRUCTION",
+  ],
 }
 
 cc_defaults {
