@@ -145,9 +145,9 @@ void OnAllPackagesActivated(bool is_bootstrap);
 // Must only be called during boot (i.e. apexd.status is not "ready" or
 // "activated").
 void OnAllPackagesReady();
-void RemoveUnlinkedDecompressedApex(const std::string& decompression_dir,
-                                    const std::string& apex_active_dir);
 void OnBootCompleted();
+// Exposed for testing
+void RemoveInactiveDataApex();
 void BootCompletedCleanup();
 int SnapshotOrRestoreDeUserData();
 
@@ -175,8 +175,10 @@ android::base::Result<void> ReserveSpaceForCompressedApex(
 
 // Activates apexes in otapreot_chroot environment.
 // TODO(b/172911822): support compressed apexes.
-// TODO(b/181182967): probably also need to support flattened apexes.
 int OnOtaChrootBootstrap();
+
+// Activates flattened apexes in otapreopt_chroot environment.
+int OnOtaChrootBootstrapFlattenedApex();
 
 android::apex::MountedApexDatabase& GetApexDatabaseForTesting();
 
