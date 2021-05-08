@@ -19,11 +19,12 @@ import hashlib
 import logging
 import os
 import shutil
-import stat
 import subprocess
 import tempfile
 import unittest
 from zipfile import ZipFile, ZIP_STORED, ZIP_DEFLATED
+
+import apex_manifest_pb2
 
 logger = logging.getLogger(__name__)
 
@@ -134,26 +135,6 @@ def get_sha1sum(file_path):
 class ApexCompressionTest(unittest.TestCase):
   def setUp(self):
     self._to_cleanup = []
-    self._get_host_tools(os.path.join(get_current_dir(),
-            'apex_compression_test_host_tools.zip'))
-
-  def _get_host_tools(self, host_tools_file_path):
-    dir_name = tempfile.mkdtemp(prefix=self._testMethodName+'_host_tools_')
-    self._to_cleanup.append(dir_name)
-    if os.path.isfile(host_tools_file_path):
-      with ZipFile(host_tools_file_path, 'r') as zip_obj:
-        zip_obj.extractall(path=dir_name)
-
-    files = {}
-    for i in ['soong_zip']:
-      file_path = os.path.join(dir_name, 'bin', i)
-      if os.path.exists(file_path):
-        os.chmod(file_path, stat.S_IRUSR | stat.S_IXUSR)
-        files[i] = file_path
-      else:
-        files[i] = i
-    self.host_tools = files
-    self.host_tools_path = os.path.join(dir_name, 'bin')
 
   def tearDown(self):
     if not DEBUG_TEST:
@@ -167,9 +148,11 @@ class ApexCompressionTest(unittest.TestCase):
       print('Cleanup: ' + str(self._to_cleanup))
 
   def _run_apex_compression_tool(self, args):
+    host_build_top = os.environ.get('ANDROID_BUILD_TOP')
     cmd = ['apex_compression_tool']
-    os.environ['APEX_COMPRESSION_TOOL_PATH'] = ( self.host_tools_path +
-        ':out/soong/host/linux-x86/bin:prebuilts/sdk/tools/linux/bin')
+    os.environ['APEX_COMPRESSION_TOOL_PATH'] = (
+        os.path.join(host_build_top, 'out/soong/host/linux-x86/bin')
+        + ':' + os.path.join(host_build_top, 'prebuilts/sdk/tools/linux/bin'))
     cmd.extend(args)
     run_host_command(cmd, True)
 
@@ -190,9 +173,34 @@ class ApexCompressionTest(unittest.TestCase):
     image_file = files.get('apex_payload.img', None)
     if image_file is None:
       image_file = files.get('apex_payload.zip', None)
-    files['apex_payload'] = image_file
+    else:
+      files['apex_payload'] = image_file
+      # Also retrieve the root digest of the image
+      avbtool_cmd = ['avbtool',
+        'print_partition_digests', '--image', files['apex_payload']]
+      # avbtool_cmd output has format "<name>: <value>"
+      files['digest'] = run_host_command(
+        avbtool_cmd, True).split(': ')[1].strip()
 
     return files
+
+  def _get_manifest_string(self, manifest_path):
+    cmd = ['conv_apex_manifest']
+    cmd.extend([
+        'print',
+        manifest_path
+    ])
+    return run_host_command(cmd, 'True')
+
+  # Mutates the manifest located at |manifest_path|
+  def _unset_original_apex_digest(self, manifest_path):
+    # Open the protobuf
+    with open(manifest_path, 'rb') as f:
+      pb = apex_manifest_pb2.ApexManifest()
+      pb.ParseFromString(f.read())
+    pb.ClearField('capexMetadata')
+    with open(manifest_path, 'wb') as f:
+      f.write(pb.SerializeToString())
 
   def _compress_apex(self, uncompressed_apex_fp):
     """Returns file path to compressed APEX"""
@@ -252,10 +260,21 @@ class ApexCompressionTest(unittest.TestCase):
     content_in_uncompressed_apex = self._get_container_files(
         uncompressed_apex_fp)
     self.assertIsNotNone(content_in_uncompressed_apex['apex_payload'])
+    self.assertIsNotNone(content_in_uncompressed_apex['digest'])
+
+    # Verify that CAPEX manifest contains digest of original_apex
+    manifest_string = self._get_manifest_string(
+        content_in_compressed_apex['apex_manifest.pb'])
+    self.assertIn('originalApexDigest: "'
+         + content_in_uncompressed_apex['digest'] + '"', manifest_string)
 
     for i in ['apex_manifest.json', 'apex_manifest.pb', 'apex_pubkey',
               'apex_build_info.pb', 'AndroidManifest.xml']:
       if i in content_in_uncompressed_apex:
+        if i == 'apex_manifest.pb':
+          # Get rid of originalApexDigest field, which should be the
+          # only difference
+          self._unset_original_apex_digest(content_in_compressed_apex[i])
         self.assertEqual(get_sha1sum(content_in_compressed_apex[i]),
                          get_sha1sum(content_in_uncompressed_apex[i]))
 
