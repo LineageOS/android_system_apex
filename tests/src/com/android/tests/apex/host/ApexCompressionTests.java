@@ -366,5 +366,30 @@ public class ApexCompressionTests extends BaseHostJUnit4Test {
 
         runPhase("testCompressedApexCanBeRolledBack_Verify");
     }
+
+    @Test
+    @LargeTest
+    public void testOrphanedDecompressedApexInActiveDirIsIgnored() throws Exception {
+        final File apex = mHostUtils.getTestFile(
+                COMPRESSED_APEX_PACKAGE_NAME + ".v1_original.apex");
+        // Prepare an APEX in active directory with .decompressed.apex suffix.
+        // Place the same apex in system too. When booting, system APEX should
+        // be mounted while the decomrpessed APEX in active direcotyr should
+        // be ignored.
+        getDevice().remountSystemWritable();
+        assertTrue(getDevice().pushFile(apex,
+                APEX_ACTIVE_DIR + COMPRESSED_APEX_PACKAGE_NAME + "@1" + DECOMPRESSED_APEX_SUFFIX));
+        assertTrue(getDevice().pushFile(apex,
+                "/system/apex/" + COMPRESSED_APEX_PACKAGE_NAME + ".v1.apex"));
+        getDevice().reboot();
+        // Ensure active apex is running from /system
+        final ITestDevice.ApexInfo activeApex = getActiveApexInfo(COMPRESSED_APEX_PACKAGE_NAME)
+                .orElseThrow(() -> new AssertionError(
+                        "Can't find " + COMPRESSED_APEX_PACKAGE_NAME));
+        assertThat(activeApex.sourceDir).startsWith("/system");
+        // Ensure orphaned decompressed APEX has been cleaned up
+        assertThat(getFilesInDir(APEX_ACTIVE_DIR))
+            .doesNotContain(COMPRESSED_APEX_PACKAGE_NAME + "@1" + DECOMPRESSED_APEX_SUFFIX);
+    }
 }
 

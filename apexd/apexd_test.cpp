@@ -2353,6 +2353,40 @@ TEST_F(ApexdMountTest, OnStartCapexToApex) {
                          });
 }
 
+// Test to ensure we do not mount decompressed APEX from /data/apex/active
+TEST_F(ApexdMountTest, OnStartOrphanedDecompressedApexInActiveDirectory) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  // Place a decompressed APEX in /data/apex/active. This apex should not
+  // be mounted since it's not in correct location. Instead, the
+  // pre-installed APEX should be mounted.
+  auto decompressed_apex_in_active_dir =
+      StringPrintf("%s/com.android.apex.compressed@1%s", GetDataDir().c_str(),
+                   kDecompressedApexPackageSuffix);
+  fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
+           decompressed_apex_in_active_dir);
+  auto apex_path =
+      AddPreInstalledApex("com.android.apex.compressed.v1_original.apex");
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  OnStart();
+
+  // Pre-installed APEX should be mounted
+  UnmountOnTearDown(apex_path);
+  auto& db = GetApexDatabaseForTesting();
+  // Check that pre-installed APEX has been activated
+  db.ForallMountedApexes("com.android.apex.compressed",
+                         [&](const MountedApexData& data, bool latest) {
+                           ASSERT_TRUE(latest);
+                           ASSERT_EQ(data.full_path, apex_path);
+                           ASSERT_THAT(data.device_name, IsEmpty());
+                         });
+}
+
 // Test scenario when decompressed version has different version than
 // pre-installed CAPEX
 TEST_F(ApexdMountTest, OnStartDecompressedApexVersionDifferentThanCapex) {
