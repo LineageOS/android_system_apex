@@ -175,7 +175,7 @@ TEST_F(ApexdUnitTest, ApexMustHavePreInstalledVersionForSelection) {
   auto shim_v1 = ApexFile::Open(AddDataApex("com.android.apex.cts.shim.apex"));
   auto shared_lib_2 = ApexFile::Open(
       AddDataApex("com.android.apex.test.sharedlibs_generated.v1.libvX.apex"));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   const auto all_apex = instance.AllApexFilesByName();
   // Pass a blank instance so that the data apex files are not considered
@@ -204,7 +204,7 @@ TEST_F(ApexdUnitTest, HigherVersionOfApexIsSelected) {
   AddDataApex("apex.apexd_test.apex");
   auto shim_v2 =
       ApexFile::Open(AddDataApex("com.android.apex.cts.shim.v2.apex"));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -226,7 +226,7 @@ TEST_F(ApexdUnitTest, DataApexGetsPriorityForSameVersions) {
   auto apexd_test_file = ApexFile::Open(AddDataApex("apex.apexd_test.apex"));
   auto shim_v1 = ApexFile::Open(AddDataApex("com.android.apex.cts.shim.apex"));
   // Initialize ApexFile repo
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -247,7 +247,7 @@ TEST_F(ApexdUnitTest, SharedLibsCanHaveBothVersionSelected) {
   auto shared_lib_v2 = ApexFile::Open(
       AddDataApex("com.android.apex.test.sharedlibs_generated.v2.libvY.apex"));
   // Initialize data APEX information
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -474,7 +474,7 @@ TEST_F(ApexdUnitTest,
   // Even if there is a data apex (lower version)
   // Include data apex within calculation now
   AddDataApex("apex.apexd_test_v2.apex");
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
   {
     auto result = ShouldAllocateSpaceForDecompression(
         "com.android.apex.test_package", 3, instance);
@@ -496,7 +496,7 @@ TEST_F(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
   PrepareCompressedApex("com.android.apex.compressed.v1.capex");
   auto& instance = ApexFileRepository::GetInstance();
   ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({GetBuiltInDir()})));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   {
     // New Compressed apex has higher version than decompressed data apex:
@@ -535,8 +535,7 @@ TEST_F(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
   TemporaryDir data_dir_new;
   fs::copy(GetTestFile("com.android.apex.compressed.v2_original.apex"),
            data_dir_new.path);
-  ASSERT_TRUE(
-      IsOk(instance_new.AddDataApex(data_dir_new.path, GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance_new.AddDataApex(data_dir_new.path)));
 
   {
     // New Compressed apex has higher version as data apex: selected
@@ -1264,17 +1263,17 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapDecompressOnlyOnceMultipleCalls) {
 
   ASSERT_EQ(OnOtaChrootBootstrap(), 0);
 
-  // Decompressed APEX should be mounted from decompression_dir
-  std::string decompressed_apex =
+  // Decompressed OTA APEX should be mounted
+  std::string decompressed_ota_apex =
       StringPrintf("%s/com.android.apex.compressed@1%s",
                    GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
-  UnmountOnTearDown(decompressed_apex);
+  UnmountOnTearDown(decompressed_ota_apex);
 
-  // Capture the creation time of the decompressed APEX
+  // Capture the creation time of the OTA APEX
   std::error_code ec;
-  auto last_write_time_1 = fs::last_write_time(decompressed_apex, ec);
+  auto last_write_time_1 = fs::last_write_time(decompressed_ota_apex, ec);
   ASSERT_FALSE(ec) << "Failed to capture last write time of "
-                   << decompressed_apex;
+                   << decompressed_ota_apex;
 
   // Call OnOtaChrootBootstrap again. Since we do not hardlink decompressed APEX
   // to /data/apex/active directory when in chroot, when selecting apex for
@@ -1282,9 +1281,9 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapDecompressOnlyOnceMultipleCalls) {
   ASSERT_EQ(OnOtaChrootBootstrap(), 0);
 
   // Compare write time to ensure we did not decompress again
-  auto last_write_time_2 = fs::last_write_time(decompressed_apex, ec);
+  auto last_write_time_2 = fs::last_write_time(decompressed_ota_apex, ec);
   ASSERT_FALSE(ec) << "Failed to capture last write time of "
-                   << decompressed_apex << ec.message();
+                   << decompressed_ota_apex << ec.message();
   ASSERT_EQ(last_write_time_1, last_write_time_2);
 }
 

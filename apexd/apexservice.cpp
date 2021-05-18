@@ -637,7 +637,7 @@ BinderStatus ApexService::recollectDataApex(
     return root;
   }
   ApexFileRepository& instance = ApexFileRepository::GetInstance();
-  if (auto res = instance.AddDataApex(path, decompression_dir); !res.ok()) {
+  if (auto res = instance.AddDataApex(path); !res.ok()) {
     return BinderStatus::fromExceptionCode(
         BinderStatus::EX_SERVICE_SPECIFIC,
         String8(res.error().message().c_str()));
