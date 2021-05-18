@@ -2438,6 +2438,97 @@ std::vector<ApexFileRef> SelectApexForActivation(
   return activation_list;
 }
 
+namespace {
+
+Result<ApexFile> OpenAndValidateDecompressedApex(const ApexFile& capex,
+                                                 const std::string& apex_path) {
+  auto apex = ApexFile::Open(apex_path);
+  if (!apex.ok()) {
+    return Error() << "Failed to open decompressed APEX: " << apex.error();
+  }
+  auto result = ValidateDecompressedApex(capex, *apex);
+  if (!result.ok()) {
+    return result.error();
+  }
+  return std::move(*apex);
+}
+
+// Process a single compressed APEX. Returns the decompressed APEX if
+// successful.
+Result<ApexFile> ProcessCompressedApex(
+    const ApexFile& capex, const std::string& dest_path_decompressed,
+    bool is_ota_chroot) {
+  LOG(INFO) << "Processing compressed APEX " << capex.GetPath();
+
+  // Check if decompressed APEX already exists
+  auto decompressed_path_exists = PathExists(dest_path_decompressed);
+  if (decompressed_path_exists.ok() && *decompressed_path_exists) {
+    // Check if existing decompressed APEX is valid
+    auto result =
+        OpenAndValidateDecompressedApex(capex, dest_path_decompressed);
+    if (result.ok()) {
+      LOG(INFO) << "Skipping decompression for " << capex.GetPath();
+      return result;
+    }
+    // Existing decompressed APEX is not valid. We will have to redecompress
+    LOG(WARNING) << "Existing decompressed APEX is invalid: " << result.error();
+    RemoveFileIfExists(dest_path_decompressed);
+  }
+
+  // We can also avoid decompression during boot time if an ota_apex exists
+  auto ota_apex_path = StringPrintf("%s/%s%s", gConfig->decompression_dir,
+                                    GetPackageId(capex.GetManifest()).c_str(),
+                                    kOtaApexPackageSuffix);
+  auto ota_path_exists = PathExists(ota_apex_path);
+  if (!is_ota_chroot && ota_path_exists.ok() && *ota_path_exists) {
+    // Check if ota_apex APEX is valid
+    auto result = OpenAndValidateDecompressedApex(capex, ota_apex_path);
+    if (result.ok()) {
+      // ota_apex matches with capex. Slot has been switched.
+
+      // Rename ota_apex to expected decompressed_apex path
+      if (rename(ota_apex_path.c_str(), dest_path_decompressed.c_str()) == 0) {
+        // Check if renamed decompressed APEX is valid
+        result = OpenAndValidateDecompressedApex(capex, dest_path_decompressed);
+        if (result.ok()) {
+          LOG(INFO) << "Renamed " << ota_apex_path << " to "
+                    << dest_path_decompressed;
+          return result;
+        }
+        // Renamed ota_apex is not valid. We will have to decompress
+        LOG(WARNING) << "Renamed decompressed APEX from " << ota_apex_path
+                     << " to " << dest_path_decompressed
+                     << " is invalid: " << result.error();
+        RemoveFileIfExists(dest_path_decompressed);
+      } else {
+        PLOG(ERROR) << "Failed to rename file " << ota_apex_path;
+      }
+    }
+  }
+
+  // There was no way to avoid decompression
+  auto decompression_result = capex.Decompress(dest_path_decompressed);
+  if (!decompression_result.ok()) {
+    return Error() << "Failed to decompress : " << capex.GetPath().c_str()
+                   << " " << decompression_result.error();
+  }
+
+  // Fix label of decompressed file
+  auto restore = RestoreconPath(dest_path_decompressed);
+  if (!restore.ok()) {
+    return restore.error();
+  }
+
+  // Validate the newly decompressed APEX
+  auto return_apex =
+      OpenAndValidateDecompressedApex(capex, dest_path_decompressed);
+  if (!return_apex.ok()) {
+    return Error() << "Failed to decompress CAPEX: " << return_apex.error();
+  }
+  return return_apex;
+}
+}  // namespace
+
 /**
  * For each compressed APEX, decompress it to kApexDecompressedDir
  * and return the decompressed APEX.
@@ -2454,100 +2545,53 @@ std::vector<ApexFile> ProcessCompressedApex(
   }
 
   std::vector<ApexFile> decompressed_apex_list;
-  for (const ApexFile& apex_file : compressed_apex) {
-    if (!apex_file.IsCompressed()) {
+  for (const ApexFile& capex : compressed_apex) {
+    if (!capex.IsCompressed()) {
       continue;
     }
-    LOG(INFO) << "Processing compressed APEX " << apex_file.GetPath();
-    // Files to clean up if processing fails for any reason
-    std::vector<std::string> cleanup;
-    auto scope_guard = android::base::make_scope_guard([&cleanup] {
-      for (const auto& file_path : cleanup) {
-        RemoveFileIfExists(file_path);
-      }
-    });
 
     const auto suffix_to_use =
         is_ota_chroot ? kOtaApexPackageSuffix : kDecompressedApexPackageSuffix;
-    const auto dest_path_decompressed = StringPrintf(
-        "%s/%s%s", gConfig->decompression_dir,
-        GetPackageId(apex_file.GetManifest()).c_str(), suffix_to_use);
+    const auto dest_path_decompressed =
+        StringPrintf("%s/%s%s", gConfig->decompression_dir,
+                     GetPackageId(capex.GetManifest()).c_str(), suffix_to_use);
 
-    cleanup.push_back(dest_path_decompressed);
-
-    // Decompress only if path doesn't exist. Otherwise reuse existing
-    // decompressed APEX
-    auto decompressed_path_exists = PathExists(dest_path_decompressed);
-    if (!decompressed_path_exists.ok() || !*decompressed_path_exists) {
-      // Try to avoid decompression if there is an ota_apex ready to be reused
-      // and we are not booting from chroot
-      auto ota_apex_path = StringPrintf(
-          "%s/%s%s", gConfig->decompression_dir,
-          GetPackageId(apex_file.GetManifest()).c_str(), kOtaApexPackageSuffix);
-      auto ota_path_exists = PathExists(ota_apex_path);
-      if (!is_ota_chroot && ota_path_exists.ok() && *ota_path_exists) {
-        LOG(INFO) << "Renaming " << ota_apex_path << " to "
-                  << dest_path_decompressed;
-        if (rename(ota_apex_path.c_str(), dest_path_decompressed.c_str()) !=
-            0) {
-          PLOG(ERROR) << "Failed to rename file " << ota_apex_path;
-          continue;
-        }
-      } else {
-        auto result = apex_file.Decompress(dest_path_decompressed);
-        if (!result.ok()) {
-          LOG(ERROR) << "Failed to decompress : " << apex_file.GetPath().c_str()
-                     << " " << result.error();
-          continue;
-        }
-      }
-
-      // Fix label of decompressed file
-      auto restore = RestoreconPath(dest_path_decompressed);
-      if (!restore.ok()) {
-        LOG(ERROR) << restore.error();
-        continue;
-      }
-    } else {
-      LOG(INFO) << "Skipping decompression for " << apex_file.GetPath();
-    }
-
-    // Post decompression validation
-    auto return_apex = ApexFile::Open(dest_path_decompressed);
-    if (!return_apex.ok()) {
-      LOG(ERROR) << "Failed to open decompressed APEX : "
-                 << dest_path_decompressed << " " << return_apex.error();
+    auto decompressed_apex =
+        ProcessCompressedApex(capex, dest_path_decompressed, is_ota_chroot);
+    if (decompressed_apex.ok()) {
+      decompressed_apex_list.emplace_back(std::move(*decompressed_apex));
       continue;
     }
-    auto validation_result =
-        ValidateDecompressedApex(apex_file, std::cref(*return_apex));
-    if (!validation_result.ok()) {
-      LOG(ERROR) << "Validation failed for decompressed APEX "
-                 << dest_path_decompressed << " " << validation_result.error();
-      continue;
-    }
-
-    // Decompressed APEX has been successfully processed. Accept it.
-    scope_guard.Disable();
-    decompressed_apex_list.emplace_back(std::move(*return_apex));
+    LOG(ERROR) << "Failed to process compressed APEX: "
+               << decompressed_apex.error();
+    RemoveFileIfExists(dest_path_decompressed);
   }
   return std::move(decompressed_apex_list);
 }
 
 Result<void> ValidateDecompressedApex(const ApexFile& capex,
                                       const ApexFile& apex) {
+  // Decompressed APEX must have same public key as CAPEX
   if (capex.GetBundledPublicKey() != apex.GetBundledPublicKey()) {
     return Error()
            << "Public key of compressed APEX is different than original "
-              "APEX for "
-           << apex.GetPath();
+           << "APEX for " << apex.GetPath();
   }
+  // Decompressed APEX must have same version as CAPEX
   if (capex.GetManifest().version() != apex.GetManifest().version()) {
     return Error()
-           << "Compressed APEX has different version than decompressed APEX"
+           << "Compressed APEX has different version than decompressed APEX "
            << apex.GetPath();
   }
-
+  // Decompressed APEX must have same root digest as what is stored in CAPEX
+  auto apex_verity = apex.VerifyApexVerity(apex.GetBundledPublicKey());
+  if (!apex_verity.ok() ||
+      capex.GetManifest().capexmetadata().originalapexdigest() !=
+          apex_verity->root_digest) {
+    return Error() << "Root digest of " << apex.GetPath()
+                   << " does not match with"
+                   << " expected root digest in " << capex.GetPath();
+  }
   return {};
 }
 

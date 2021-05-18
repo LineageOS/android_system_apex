@@ -28,6 +28,7 @@
 
 #include "apex_constants.h"
 #include "apex_file.h"
+#include "apexd.h"
 #include "apexd_utils.h"
 
 using android::base::Error;
@@ -161,15 +162,10 @@ Result<void> ApexFileRepository::AddDataApex(
                    << " pre-installed APEX counterpart on system";
         continue;
       }
-      // Verify that apex_file has same version as pre_installed_apex, otherwise
-      // it's an invalid decompressed apex
-      // TODO(b/185708645): Comparing version to determine equivalence is
-      // brittle.
-      if (apex_file->GetManifest().version() !=
-          pre_installed_apex.get().GetManifest().version()) {
-        LOG(ERROR) << "Skipping " << file
-                   << " : Decompressed APEX has different version than"
-                   << " pre-installed APEX";
+      // Validate decompressed APEX against CAPEX
+      auto result = ValidateDecompressedApex(pre_installed_apex, *apex_file);
+      if (!result.ok()) {
+        LOG(WARNING) << "Skipping " << file << ": " << result.error();
         continue;
       }
     } else if (android::base::EndsWith(apex_file->GetPath(),
