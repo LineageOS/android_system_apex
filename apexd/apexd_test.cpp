@@ -46,6 +46,7 @@ using android::apex::testing::IsOk;
 using android::base::GetExecutableDirectory;
 using android::base::GetProperty;
 using android::base::make_scope_guard;
+using android::base::RemoveFileIfExists;
 using android::base::Result;
 using android::base::StringPrintf;
 using android::base::WriteStringToFile;
@@ -99,6 +100,17 @@ class ApexdUnitTest : public ::testing::Test {
   const std::string& GetDecompressionDir() { return decompression_dir_; }
   const std::string& GetOtaReservedDir() { return ota_reserved_dir_; }
   const std::string& GetHashTreeDir() { return hash_tree_dir_; }
+
+  std::string GetRootDigest(const ApexFile& apex) {
+    if (apex.IsCompressed()) {
+      return "";
+    }
+    auto digest = apex.VerifyApexVerity(apex.GetBundledPublicKey());
+    if (!digest.ok()) {
+      return "";
+    }
+    return digest->root_digest;
+  }
 
   std::string AddPreInstalledApex(const std::string& apex_name) {
     fs::copy(GetTestFile(apex_name), built_in_dir_);
@@ -163,7 +175,7 @@ TEST_F(ApexdUnitTest, ApexMustHavePreInstalledVersionForSelection) {
   auto shim_v1 = ApexFile::Open(AddDataApex("com.android.apex.cts.shim.apex"));
   auto shared_lib_2 = ApexFile::Open(
       AddDataApex("com.android.apex.test.sharedlibs_generated.v1.libvX.apex"));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   const auto all_apex = instance.AllApexFilesByName();
   // Pass a blank instance so that the data apex files are not considered
@@ -192,7 +204,7 @@ TEST_F(ApexdUnitTest, HigherVersionOfApexIsSelected) {
   AddDataApex("apex.apexd_test.apex");
   auto shim_v2 =
       ApexFile::Open(AddDataApex("com.android.apex.cts.shim.v2.apex"));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -214,7 +226,7 @@ TEST_F(ApexdUnitTest, DataApexGetsPriorityForSameVersions) {
   auto apexd_test_file = ApexFile::Open(AddDataApex("apex.apexd_test.apex"));
   auto shim_v1 = ApexFile::Open(AddDataApex("com.android.apex.cts.shim.apex"));
   // Initialize ApexFile repo
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -235,7 +247,7 @@ TEST_F(ApexdUnitTest, SharedLibsCanHaveBothVersionSelected) {
   auto shared_lib_v2 = ApexFile::Open(
       AddDataApex("com.android.apex.test.sharedlibs_generated.v2.libvY.apex"));
   // Initialize data APEX information
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   auto all_apex = instance.AllApexFilesByName();
   auto result = SelectApexForActivation(all_apex, instance);
@@ -311,6 +323,15 @@ TEST_F(ApexdUnitTest, ValidateDecompressedApex) {
       result.error().message(),
       HasSubstr(
           "Compressed APEX has different version than decompressed APEX"));
+
+  // Validation check root digest
+  auto decompressed_v1_different_digest = ApexFile::Open(AddDataApex(
+      "com.android.apex.compressed.v1_different_digest_original.apex"));
+  result = ValidateDecompressedApex(
+      std::cref(*capex), std::cref(*decompressed_v1_different_digest));
+  ASSERT_FALSE(IsOk(result));
+  ASSERT_THAT(result.error().message(),
+              HasSubstr("does not match with expected root digest"));
 
   // Validation checks key
   auto capex_different_key = ApexFile::Open(
@@ -390,9 +411,9 @@ TEST_F(ApexdUnitTest, ProcessCompressedApexOnOtaChroot) {
 
 // When decompressing APEX, reuse existing OTA APEX
 TEST_F(ApexdUnitTest, ProcessCompressedApexReuseOtaApex) {
-  // Push a compressed APEX that will fail post-decompression verification
-  auto compressed_apex = ApexFile::Open(
-      AddPreInstalledApex("com.android.apex.compressed.v1_with_v2_apex.capex"));
+  // Push a compressed APEX that will fail to decompress
+  auto compressed_apex = ApexFile::Open(AddPreInstalledApex(
+      "com.android.apex.compressed.v1_not_decompressible.capex"));
 
   std::vector<ApexFileRef> compressed_apex_list;
   compressed_apex_list.emplace_back(std::cref(*compressed_apex));
@@ -453,7 +474,7 @@ TEST_F(ApexdUnitTest,
   // Even if there is a data apex (lower version)
   // Include data apex within calculation now
   AddDataApex("apex.apexd_test_v2.apex");
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
   {
     auto result = ShouldAllocateSpaceForDecompression(
         "com.android.apex.test_package", 3, instance);
@@ -475,7 +496,7 @@ TEST_F(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
   PrepareCompressedApex("com.android.apex.compressed.v1.capex");
   auto& instance = ApexFileRepository::GetInstance();
   ASSERT_TRUE(IsOk(instance.AddPreInstalledApex({GetBuiltInDir()})));
-  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir(), GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance.AddDataApex(GetDataDir())));
 
   {
     // New Compressed apex has higher version than decompressed data apex:
@@ -514,8 +535,7 @@ TEST_F(ApexdUnitTest, ShouldAllocateSpaceForDecompressionVersionCompare) {
   TemporaryDir data_dir_new;
   fs::copy(GetTestFile("com.android.apex.compressed.v2_original.apex"),
            data_dir_new.path);
-  ASSERT_TRUE(
-      IsOk(instance_new.AddDataApex(data_dir_new.path, GetDecompressionDir())));
+  ASSERT_TRUE(IsOk(instance_new.AddDataApex(data_dir_new.path)));
 
   {
     // New Compressed apex has higher version as data apex: selected
@@ -1243,17 +1263,17 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapDecompressOnlyOnceMultipleCalls) {
 
   ASSERT_EQ(OnOtaChrootBootstrap(), 0);
 
-  // Decompressed APEX should be mounted from decompression_dir
-  std::string decompressed_apex =
+  // Decompressed OTA APEX should be mounted
+  std::string decompressed_ota_apex =
       StringPrintf("%s/com.android.apex.compressed@1%s",
                    GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
-  UnmountOnTearDown(decompressed_apex);
+  UnmountOnTearDown(decompressed_ota_apex);
 
-  // Capture the creation time of the decompressed APEX
+  // Capture the creation time of the OTA APEX
   std::error_code ec;
-  auto last_write_time_1 = fs::last_write_time(decompressed_apex, ec);
+  auto last_write_time_1 = fs::last_write_time(decompressed_ota_apex, ec);
   ASSERT_FALSE(ec) << "Failed to capture last write time of "
-                   << decompressed_apex;
+                   << decompressed_ota_apex;
 
   // Call OnOtaChrootBootstrap again. Since we do not hardlink decompressed APEX
   // to /data/apex/active directory when in chroot, when selecting apex for
@@ -1261,9 +1281,9 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapDecompressOnlyOnceMultipleCalls) {
   ASSERT_EQ(OnOtaChrootBootstrap(), 0);
 
   // Compare write time to ensure we did not decompress again
-  auto last_write_time_2 = fs::last_write_time(decompressed_apex, ec);
+  auto last_write_time_2 = fs::last_write_time(decompressed_ota_apex, ec);
   ASSERT_FALSE(ec) << "Failed to capture last write time of "
-                   << decompressed_apex << ec.message();
+                   << decompressed_ota_apex << ec.message();
   ASSERT_EQ(last_write_time_1, last_write_time_2);
 }
 
@@ -1358,6 +1378,71 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapSamegradeCapex) {
                            ASSERT_EQ(data.device_name,
                                      "com.android.apex.compressed@1.chroot");
                          });
+}
+
+// Test when we update existing CAPEX to same version, but different digest
+TEST_F(ApexdMountTest, OnOtaChrootBootstrapSamegradeCapexDifferentDigest) {
+  TemporaryDir previous_built_in_dir;
+  auto different_digest_apex_path = PrepareCompressedApex(
+      "com.android.apex.compressed.v1_different_digest.capex",
+      previous_built_in_dir.path);
+  // Place a same version capex in current built_in_dir, which has different
+  // digest
+  auto apex_path = AddPreInstalledApex("com.android.apex.compressed.v1.capex");
+
+  ASSERT_EQ(OnOtaChrootBootstrap(), 0);
+
+  // New decompressed ota APEX should be mounted with kOtaApexPackageSuffix
+  std::string decompressed_ota_apex =
+      StringPrintf("%s/com.android.apex.compressed@1%s",
+                   GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
+  UnmountOnTearDown(decompressed_ota_apex);
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/com.android.apex.compressed",
+                                   "/apex/com.android.apex.compressed@1"));
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_decompressed = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.compressed",
+      /* modulePath= */ decompressed_ota_apex,
+      /* preinstalledModulePath= */ apex_path,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_decompressed)));
+  auto& db = GetApexDatabaseForTesting();
+  // Check that it was mounted from decompressed apex. It should also be mounted
+  // on dm-verity device.
+  db.ForallMountedApexes("com.android.apex.compressed",
+                         [&](const MountedApexData& data, bool latest) {
+                           ASSERT_TRUE(latest);
+                           ASSERT_EQ(data.full_path, decompressed_ota_apex);
+                           ASSERT_EQ(data.device_name,
+                                     "com.android.apex.compressed@1.chroot");
+                         });
+
+  // Ensure decompressed apex has same digest as pre-installed
+  auto pre_installed_apex = ApexFile::Open(apex_path);
+  auto decompressed_apex = ApexFile::Open(decompressed_ota_apex);
+  auto different_digest_apex = ApexFile::Open(different_digest_apex_path);
+  ASSERT_EQ(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      GetRootDigest(*decompressed_apex));
+  ASSERT_NE(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      GetRootDigest(*different_digest_apex));
+
+  // Ensure we didn't remove previous decompressed APEX
+  std::string previous_decompressed_apex = StringPrintf(
+      "%s/com.android.apex.compressed@1%s", GetDecompressionDir().c_str(),
+      kDecompressedApexPackageSuffix);
+  auto path_exists = PathExists(previous_decompressed_apex);
+  ASSERT_TRUE(*path_exists);
 }
 
 // Test when we update existing CAPEX to same version, but different key via OTA
@@ -1567,7 +1652,7 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataLowerThanCapex) {
                          });
 }
 
-// Test when we update CAPEX and there is a higher version present in data
+// Test when we update CAPEX and there is a same version present in data
 TEST_F(ApexdMountTest, OnOtaChrootBootstrapDataSameAsCapex) {
   auto system_apex_path =
       PrepareCompressedApex("com.android.apex.compressed.v1.capex");
@@ -2150,6 +2235,7 @@ TEST_F(ApexdMountTest, OnStartDataHasSameVersionAsCapex) {
 
   OnStart();
 
+  // Data APEX should be mounted
   UnmountOnTearDown(apex_path_2);
 
   ASSERT_EQ(GetProperty(kTestApexdStatusSysprop, ""), "starting");
@@ -2425,6 +2511,119 @@ TEST_F(ApexdMountTest, OnStartDecompressedApexVersionDifferentThanCapex) {
                            ASSERT_EQ(data.device_name,
                                      "com.android.apex.compressed@1");
                          });
+}
+
+// Test that ota_apex is persisted until slot switch
+TEST_F(ApexdMountTest, OnStartOtaApexKeptUntilSlotSwitch) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  // Imagine current system has v1 capex and we have v2 incoming via ota
+  auto old_capex = AddPreInstalledApex("com.android.apex.compressed.v1.capex");
+  auto ota_apex_path =
+      StringPrintf("%s/com.android.apex.compressed@2%s",
+                   GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
+  fs::copy(GetTestFile("com.android.apex.compressed.v2_original.apex"),
+           ota_apex_path.c_str());
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  // First try starting without slot switch. Since we are booting with
+  // old pre-installed capex, ota_apex should not be deleted
+  OnStart();
+  auto path_exists = PathExists(ota_apex_path);
+  ASSERT_TRUE(*path_exists);
+
+  // When we switch slot, the pre-installed APEX will match ota_apex
+  // and the ota_apex will end up getting renamed.
+  RemoveFileIfExists(old_capex);
+  AddPreInstalledApex("com.android.apex.compressed.v2.capex");
+  ApexFileRepository::GetInstance().Reset(GetDecompressionDir());
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+  OnStart();
+  path_exists = PathExists(ota_apex_path);
+  ASSERT_FALSE(*path_exists);
+}
+
+// Test scenario when decompressed version has same version but different
+// digest
+TEST_F(ApexdMountTest,
+       OnStartDecompressedApexVersionSameAsCapexDifferentDigest) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  // Push a CAPEX to system without decompressing it
+  auto apex_path = AddPreInstalledApex("com.android.apex.compressed.v1.capex");
+  auto pre_installed_apex = ApexFile::Open(apex_path);
+  // Now push an APEX with different root digest as decompressed APEX
+  auto decompressed_apex_path = StringPrintf(
+      "%s/com.android.apex.compressed@1%s", GetDecompressionDir().c_str(),
+      kDecompressedApexPackageSuffix);
+  fs::copy(GetTestFile(
+               "com.android.apex.compressed.v1_different_digest_original.apex"),
+           decompressed_apex_path);
+  auto different_digest_apex = ApexFile::Open(decompressed_apex_path);
+  auto different_digest = GetRootDigest(*different_digest_apex);
+  ASSERT_NE(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      different_digest);
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  OnStart();
+
+  // Existing same version decompressed APEX with different root digest should
+  // be ignored and the pre-installed CAPEX should be decompressed again.
+  UnmountOnTearDown(decompressed_apex_path);
+
+  // Ensure decompressed apex has same digest as pre-installed
+  auto decompressed_apex = ApexFile::Open(decompressed_apex_path);
+  ASSERT_EQ(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      GetRootDigest(*decompressed_apex));
+  ASSERT_NE(GetRootDigest(*decompressed_apex), different_digest);
+}
+
+// Test when decompressed APEX has different key than CAPEX
+TEST_F(ApexdMountTest, OnStartDecompressedApexVersionSameAsCapexDifferentKey) {
+  MockCheckpointInterface checkpoint_interface;
+  // Need to call InitializeVold before calling OnStart
+  InitializeVold(&checkpoint_interface);
+
+  TemporaryDir previous_built_in_dir;
+  auto different_key_apex_path =
+      PrepareCompressedApex("com.android.apex.compressed_different_key.capex",
+                            previous_built_in_dir.path);
+  // Place a same version capex in current built_in_dir, which has different key
+  auto apex_path = AddPreInstalledApex("com.android.apex.compressed.v1.capex");
+
+  ASSERT_RESULT_OK(
+      ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
+
+  OnStart();
+
+  // Existing same version decompressed APEX should be ignored and new
+  // pre-installed CAPEX should be decompressed and mounted
+  std::string decompressed_active_apex = StringPrintf(
+      "%s/com.android.apex.compressed@1%s", GetDecompressionDir().c_str(),
+      kDecompressedApexPackageSuffix);
+  UnmountOnTearDown(decompressed_active_apex);
+
+  // Ensure decompressed apex has same digest as pre-installed
+  auto pre_installed_apex = ApexFile::Open(apex_path);
+  auto decompressed_apex = ApexFile::Open(decompressed_active_apex);
+  auto different_key_apex = ApexFile::Open(different_key_apex_path);
+  ASSERT_EQ(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      GetRootDigest(*decompressed_apex));
+  ASSERT_NE(
+      pre_installed_apex->GetManifest().capexmetadata().originalapexdigest(),
+      GetRootDigest(*different_key_apex));
 }
 
 TEST_F(ApexdMountTest, PopulateFromMountsChecksPathPrefix) {
