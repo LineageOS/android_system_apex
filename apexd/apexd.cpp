@@ -3273,5 +3273,17 @@ android::apex::MountedApexDatabase& GetApexDatabaseForTesting() {
   return gMountedApexes;
 }
 
+Result<ApexFile> InstallPackage(const std::string& package_path) {
+  LOG(INFO) << "Installing " << package_path;
+  auto apex = ApexFile::Open(package_path);
+  if (!apex.ok()) {
+    return apex;
+  }
+  if (!apex->GetManifest().supportsrebootlessupdate()) {
+    return Error() << package_path << " does not support non-staged update";
+  }
+  return Error() << "TODO(b/187864524): implement";
+}
+
 }  // namespace apex
 }  // namespace android
