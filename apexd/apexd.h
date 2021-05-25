@@ -182,6 +182,10 @@ int OnOtaChrootBootstrapFlattenedApex();
 
 android::apex::MountedApexDatabase& GetApexDatabaseForTesting();
 
+// Performs a non-staged install of an APEX specified by |package_path|.
+// TODO(ioffe): add more documentation.
+android::base::Result<ApexFile> InstallPackage(const std::string& package_path);
+
 }  // namespace apex
 }  // namespace android
 
