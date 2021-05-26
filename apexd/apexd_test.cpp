@@ -711,6 +711,7 @@ TEST_F(ApexdMountTest, ActivateDeactivateSharedLibsApex) {
       "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
   ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
 
+  UnmountOnTearDown(file_path);
   ASSERT_TRUE(IsOk(ActivatePackage(file_path)));
 
   auto active_apex = GetActivePackage("com.android.apex.test.sharedlibs");
@@ -1776,6 +1777,8 @@ TEST_F(ApexdMountTest, OnOtaChrootBootstrapSelinuxLabelsAreCorrect) {
       "com.android.apex.test.sharedlibs_generated.v1.libvX.apex");
   std::string apex_path_3 = AddDataApex("apex.apexd_test_v2.apex");
 
+  UnmountOnTearDown(apex_path_2);
+  UnmountOnTearDown(apex_path_3);
   ASSERT_EQ(OnOtaChrootBootstrap(), 0);
 
   EXPECT_EQ(GetSelinuxContext("/apex/apex-info-list.xml"),
@@ -2009,12 +2012,13 @@ TEST_F(ApexdMountTest, OnStartDataHasWrongSHA) {
   // Need to call InitializeVold before calling OnStart
   InitializeVold(&checkpoint_interface);
 
-  AddPreInstalledApex("com.android.apex.cts.shim.apex");
+  std::string apex_path = AddPreInstalledApex("com.android.apex.cts.shim.apex");
   AddDataApex("com.android.apex.cts.shim.v2_wrong_sha.apex");
 
   ASSERT_RESULT_OK(
       ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
 
+  UnmountOnTearDown(apex_path);
   OnStart();
 
   // Check system shim apex is activated instead of the data one.
@@ -2547,6 +2551,19 @@ TEST_F(ApexdMountTest, OnStartOtaApexKeptUntilSlotSwitch) {
   ASSERT_RESULT_OK(
       ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()}));
 
+  // When we call OnStart for the first time, it will decompress v1 capex and
+  // activate it, while after second call it will decompress v2 capex and
+  // activate it. We need to make sure that activated APEXes are cleaned up
+  // after test finishes.
+  auto old_decompressed_apex = StringPrintf(
+      "%s/com.android.apex.compressed@1%s", GetDecompressionDir().c_str(),
+      kDecompressedApexPackageSuffix);
+  auto new_decompressed_apex = StringPrintf(
+      "%s/com.android.apex.compressed@2%s", GetDecompressionDir().c_str(),
+      kDecompressedApexPackageSuffix);
+  UnmountOnTearDown(old_decompressed_apex);
+  UnmountOnTearDown(new_decompressed_apex);
+
   // First try starting without slot switch. Since we are booting with
   // old pre-installed capex, ota_apex should not be deleted
   OnStart();
@@ -2666,9 +2683,32 @@ TEST_F(ApexdMountTest, PopulateFromMountsChecksPathPrefix) {
   ASSERT_TRUE(IsOk(ActivatePackage(apex_path)));
   ASSERT_TRUE(IsOk(ActivatePackage(decompressed_apex)));
   ASSERT_TRUE(IsOk(ActivatePackage(other_apex)));
+
+  auto& db = GetApexDatabaseForTesting();
+  // Remember mount information for |other_apex|, since it won't be available in
+  // the database. We will need to tear it down manually.
+  std::optional<MountedApexData> other_apex_mount_data;
+  db.ForallMountedApexes(
+      "com.android.apex.test_package_2",
+      [&other_apex_mount_data](const MountedApexData& data, bool latest) {
+        if (latest) {
+          other_apex_mount_data.emplace(data);
+        }
+      });
   UnmountOnTearDown(apex_path);
   UnmountOnTearDown(decompressed_apex);
-  UnmountOnTearDown(other_apex);
+  ASSERT_TRUE(other_apex_mount_data.has_value());
+  auto deleter = make_scope_guard([&other_apex_mount_data]() {
+    if (!other_apex_mount_data.has_value()) {
+      return;
+    }
+    if (umount2("/apex/com.android.apex.test_package_2", 0) != 0) {
+      PLOG(ERROR) << "Failed to unmount /apex/com.android.apex.test_package_2";
+    }
+    if (auto res = Unmount(*other_apex_mount_data); !res.ok()) {
+      LOG(ERROR) << res.error();
+    }
+  });
 
   auto apex_mounts = GetApexMounts();
   ASSERT_THAT(apex_mounts,
@@ -2679,7 +2719,6 @@ TEST_F(ApexdMountTest, PopulateFromMountsChecksPathPrefix) {
                                    "/apex/com.android.apex.test_package_2",
                                    "/apex/com.android.apex.test_package_2@1"));
 
-  auto& db = GetApexDatabaseForTesting();
   // Clear the database before calling PopulateFromMounts
   db.Reset();
 
