@@ -576,6 +576,8 @@ Result<MountedApexData> VerifyAndTempMountPackage(
   return ret;
 }
 
+}  // namespace
+
 Result<void> Unmount(const MountedApexData& data) {
   LOG(DEBUG) << "Unmounting " << data.full_path << " from mount point "
              << data.mount_point;
@@ -611,6 +613,8 @@ Result<void> Unmount(const MountedApexData& data) {
 
   return {};
 }
+
+namespace {
 
 template <typename VerifyFn>
 Result<void> RunVerifyFnInsideTempMount(const ApexFile& apex,
