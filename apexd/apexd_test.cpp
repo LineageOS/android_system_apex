@@ -1131,6 +1131,52 @@ TEST_F(ApexdMountTest, InstallPackageUnmountFailedUpdatedApexActive) {
       });
 }
 
+TEST_F(ApexdMountTest, InstallPackageUpdatesApexInfoList) {
+  auto apex_1 = AddPreInstalledApex("test.rebootless_apex_v1.apex");
+  auto apex_2 = AddPreInstalledApex("apex.apexd_test.apex");
+  ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
+
+  UnmountOnTearDown(apex_1);
+  UnmountOnTearDown(apex_2);
+  ASSERT_TRUE(IsOk(ActivatePackage(apex_1)));
+  ASSERT_TRUE(IsOk(ActivatePackage(apex_2)));
+
+  // Call OnAllPackagesActivated to create /apex/apex-info-list.xml.
+  OnAllPackagesActivated(/* is_bootstrap= */ false);
+  // Check /apex/apex-info-list.xml was created.
+  ASSERT_EQ(0, access("/apex/apex-info-list.xml", F_OK));
+
+  auto ret = InstallPackage(GetTestFile("test.rebootless_apex_v2.apex"));
+  ASSERT_TRUE(IsOk(ret));
+  UnmountOnTearDown(ret->GetPath());
+
+  ASSERT_EQ(access("/apex/apex-info-list.xml", F_OK), 0);
+  auto info_list =
+      com::android::apex::readApexInfoList("/apex/apex-info-list.xml");
+  ASSERT_TRUE(info_list.has_value());
+  auto apex_info_xml_1 = com::android::apex::ApexInfo(
+      /* moduleName= */ "test.apex.rebootless",
+      /* modulePath= */ apex_1,
+      /* preinstalledModulePath= */ apex_1,
+      /* versionCode= */ 1, /* versionName= */ "1",
+      /* isFactory= */ true, /* isActive= */ false);
+  auto apex_info_xml_2 = com::android::apex::ApexInfo(
+      /* moduleName= */ "com.android.apex.test_package",
+      /* modulePath= */ apex_2, /* preinstalledModulePath= */ apex_2,
+      /* versionCode= */ 1, /* versionName= */ "1", /* isFactory= */ true,
+      /* isActive= */ true);
+  auto apex_info_xml_3 = com::android::apex::ApexInfo(
+      /* moduleName= */ "test.apex.rebootless",
+      /* modulePath= */ ret->GetPath(),
+      /* preinstalledModulePath= */ apex_1,
+      /* versionCode= */ 2, /* versionName= */ "2",
+      /* isFactory= */ false, /* isActive= */ true);
+  ASSERT_THAT(info_list->getApexInfo(),
+              UnorderedElementsAre(ApexInfoXmlEq(apex_info_xml_1),
+                                   ApexInfoXmlEq(apex_info_xml_2),
+                                   ApexInfoXmlEq(apex_info_xml_3)));
+}
+
 TEST_F(ApexdMountTest, ActivatePackage) {
   std::string file_path = AddPreInstalledApex("apex.apexd_test.apex");
   ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
