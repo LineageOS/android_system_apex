@@ -209,7 +209,7 @@ apex {
     prebuilts: ["sample_prebuilt_file"],
     key: "com.android.apex.test_package.key",
     installable: false,
-    test_only_no_hashtree: true,
+    generate_hashtree: false,
     updatable: false,
 }
 
@@ -226,7 +226,7 @@ apex {
     ],
     key: "com.android.apex.test_package.key",
     installable: false,
-    test_only_no_hashtree: true,
+    generate_hashtree: false,
     updatable: false,
 }
 
@@ -457,7 +457,7 @@ apex {
     key: "com.android.apex.test_package.key",
     installable: false,
     updatable: false,
-    test_only_no_hashtree: true,
+    generate_hashtree: false,
 }
 
 apex {
@@ -512,7 +512,6 @@ apex {
     key: "com.android.apex.test_package.key",
     installable: false,
     updatable: false,
-    test_only_no_hashtree: true,
 }
 
 apex {
