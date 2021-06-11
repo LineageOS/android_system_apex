@@ -133,7 +133,7 @@ apex {
   apps: ["CtsShim", "CtsShimPriv"],
   installable: false,
   allowed_files: "default_shim_allowed_list.txt",
-  test_only_no_hashtree: true,
+  generate_hashtree: false,
   updatable: false,
 }
 
