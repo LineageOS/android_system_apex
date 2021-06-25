@@ -130,6 +130,12 @@ class ApexdUnitTest : public ::testing::Test {
     return StringPrintf("%s/%s", data_dir_.c_str(), apex_name.c_str());
   }
 
+  std::string AddDataApex(const std::string& apex_name,
+                          const std::string& target_name) {
+    fs::copy(GetTestFile(apex_name), data_dir_ + "/" + target_name);
+    return StringPrintf("%s/%s", data_dir_.c_str(), target_name.c_str());
+  }
+
   // Copies the compressed apex to |built_in_dir| and decompresses it to
   // |decompressed_dir| and then hard links to |target_dir|
   std::string PrepareCompressedApex(const std::string& name,
@@ -1015,6 +1021,59 @@ TEST_F(ApexdMountTest, InstallPackageDataVersionActive) {
         ASSERT_TRUE(latest);
         ASSERT_EQ(data.full_path, ret->GetPath());
         ASSERT_EQ(data.device_name, "test.apex.rebootless@2_1");
+      });
+}
+
+TEST_F(ApexdMountTest, InstallPackageResolvesPathCollision) {
+  AddPreInstalledApex("test.rebootless_apex_v1.apex");
+  ApexFileRepository::GetInstance().AddPreInstalledApex({GetBuiltInDir()});
+
+  std::string file_path = AddDataApex("test.rebootless_apex_v1.apex",
+                                      "test.apex.rebootless@1_1.apex");
+  ASSERT_TRUE(IsOk(ActivatePackage(file_path)));
+  UnmountOnTearDown(file_path);
+
+  {
+    auto active_apex = GetActivePackage("test.apex.rebootless");
+    ASSERT_TRUE(IsOk(active_apex));
+    ASSERT_EQ(active_apex->GetPath(), file_path);
+  }
+
+  auto ret = InstallPackage(GetTestFile("test.rebootless_apex_v1.apex"));
+  ASSERT_TRUE(IsOk(ret));
+  UnmountOnTearDown(ret->GetPath());
+
+  auto apex_mounts = GetApexMounts();
+  ASSERT_THAT(apex_mounts,
+              UnorderedElementsAre("/apex/test.apex.rebootless",
+                                   "/apex/test.apex.rebootless@1"));
+
+  // Check that /apex/test.apex.rebootless is a bind mount of
+  // /apex/test.apex.rebootless@2.
+  auto manifest = ReadManifest("/apex/test.apex.rebootless/apex_manifest.pb");
+  ASSERT_TRUE(IsOk(manifest));
+  ASSERT_EQ(1u, manifest->version());
+
+  // Check that GetActivePackage correctly reports upgraded version.
+  auto active_apex = GetActivePackage("test.apex.rebootless");
+  ASSERT_TRUE(IsOk(active_apex));
+  ASSERT_EQ(active_apex->GetPath(), ret->GetPath());
+
+  // Check that we correctly resolved active apex path collision.
+  ASSERT_EQ(active_apex->GetPath(),
+            GetDataDir() + "/test.apex.rebootless@1_2.apex");
+
+  // Check that previously active APEX was deleted.
+  ASSERT_EQ(-1, access(file_path.c_str(), F_OK));
+  ASSERT_EQ(ENOENT, errno);
+
+  auto& db = GetApexDatabaseForTesting();
+  // Check that upgraded APEX is mounted on top of dm-verity device.
+  db.ForallMountedApexes(
+      "test.apex.rebootless", [&](const MountedApexData& data, bool latest) {
+        ASSERT_TRUE(latest);
+        ASSERT_EQ(data.full_path, ret->GetPath());
+        ASSERT_EQ(data.device_name, "test.apex.rebootless@1_2");
       });
 }
 

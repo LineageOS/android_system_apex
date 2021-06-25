@@ -62,7 +62,31 @@ library_linking_strategy_cc_defaults {
 }
 
 cc_binary {
-  name: "library_linking_strategy_sample_binary",
-  srcs: ["library_linking_strategy.cc"],
-  defaults: ["library_linking_strategy_sample_defaults"],
+    name: "library_linking_strategy_sample_binary",
+    srcs: ["library_linking_strategy.cc"],
+    defaults: ["library_linking_strategy_sample_defaults"],
+}
+
+soong_config_bool_variable {
+    name: "module_build_from_source",
+}
+
+soong_config_module_type {
+    name: "module_apex_set",
+    module_type: "apex_set",
+    config_namespace: "ANDROID",
+    bool_variables: ["module_build_from_source"],
+    properties: [
+        "prefer",
+    ],
+}
+
+soong_config_module_type {
+    name: "module_android_app_import",
+    module_type: "android_app_import",
+    config_namespace: "ANDROID",
+    bool_variables: ["module_build_from_source"],
+    properties: [
+        "prefer",
+    ],
 }
