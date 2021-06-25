@@ -3504,6 +3504,17 @@ Result<size_t> ComputePackageIdMinor(const ApexFile& apex) {
                    << ") dm block devices associated with package "
                    << apex.GetManifest().name();
   }
+  while (true) {
+    std::string target_file =
+        StringPrintf("%s/%s_%zu.apex", gConfig->active_apex_data_dir,
+                     GetPackageId(apex.GetManifest()).c_str(), next_minor);
+    if (access(target_file.c_str(), F_OK) == 0) {
+      next_minor++;
+    } else {
+      break;
+    }
+  }
+
   return next_minor;
 }
 
