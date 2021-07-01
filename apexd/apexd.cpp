@@ -2334,6 +2334,7 @@ Result<void> CreateSharedLibsApexDir() {
 }
 
 int OnBootstrap() {
+  auto time_started = boot_clock::now();
   Result<void> pre_allocate = PreAllocateLoopDevices();
   if (!pre_allocate.ok()) {
     LOG(ERROR) << "Failed to pre-allocate loop devices : "
@@ -2383,7 +2384,9 @@ int OnBootstrap() {
   }
 
   OnAllPackagesActivated(/*is_bootstrap=*/true);
-  LOG(INFO) << "Bootstrapping done";
+  auto time_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    boot_clock::now() - time_started).count();
+  LOG(INFO) << "OnBootstrap done, duration=" << time_elapsed;
   return 0;
 }
 
@@ -2708,6 +2711,7 @@ Result<void> ValidateDecompressedApex(const ApexFile& capex,
 
 void OnStart() {
   LOG(INFO) << "Marking APEXd as starting";
+  auto time_started = boot_clock::now();
   if (!SetProperty(gConfig->apex_status_sysprop, kApexStatusStarting)) {
     PLOG(ERROR) << "Failed to set " << gConfig->apex_status_sysprop << " to "
                 << kApexStatusStarting;
@@ -2809,6 +2813,10 @@ void OnStart() {
 
   // Now that APEXes are mounted, snapshot or restore DE_sys data.
   SnapshotOrRestoreDeSysData();
+
+  auto time_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    boot_clock::now() - time_started).count();
+  LOG(INFO) << "OnStart done, duration=" << time_elapsed;
 }
 
 void OnAllPackagesActivated(bool is_bootstrap) {
@@ -3136,30 +3144,31 @@ void CollectApexInfoList(std::ostream& os,
   com::android::apex::write(os, apex_info_list);
 }
 
-// Reserve |size| bytes in |dest_dir| by creating a zero-filled file
-// If |size| passed is 0, then we cleanup reserved space and any
-// ota_apex that has been processed as part of pre-reboot decompression.
+// Reserve |size| bytes in |dest_dir| by creating a zero-filled file.
+// Also, we always clean up ota_apex that has been processed as
+// part of pre-reboot decompression whenever we reserve space.
 Result<void> ReserveSpaceForCompressedApex(int64_t size,
                                            const std::string& dest_dir) {
   if (size < 0) {
     return Error() << "Cannot reserve negative byte of space";
   }
+
+  // Since we are reserving space, then we must be preparing for a new OTA.
+  // Clean up any processed ota_apex from previous OTA.
+  auto ota_apex_files =
+      FindFilesBySuffix(gConfig->decompression_dir, {kOtaApexPackageSuffix});
+  if (!ota_apex_files.ok()) {
+    return Error() << "Failed to clean up ota_apex: " << ota_apex_files.error();
+  }
+  for (const std::string& ota_apex : *ota_apex_files) {
+    RemoveFileIfExists(ota_apex);
+  }
+
   auto file_path = StringPrintf("%s/full.tmp", dest_dir.c_str());
   if (size == 0) {
     LOG(INFO) << "Cleaning up reserved space for compressed APEX";
     // Ota is being cancelled. Clean up reserved space
     RemoveFileIfExists(file_path);
-
-    // Clean up any processed ota_apex
-    auto ota_apex_files =
-        FindFilesBySuffix(gConfig->decompression_dir, {kOtaApexPackageSuffix});
-    if (!ota_apex_files.ok()) {
-      return Error() << "Failed to clean up ota_apex: "
-                     << ota_apex_files.error();
-    }
-    for (const std::string& ota_apex : *ota_apex_files) {
-      RemoveFileIfExists(ota_apex);
-    }
     return {};
   }
 

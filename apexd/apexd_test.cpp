@@ -650,19 +650,33 @@ TEST_F(ApexdUnitTest, ReserveSpaceForCompressedApexDeallocateIfPassedZero) {
   ASSERT_EQ(files->size(), 0u);
 }
 
-TEST_F(ApexdUnitTest, ReserveSpaceForCapexCleansOtaApexIfPassedZero) {
+TEST_F(ApexdUnitTest, ReserveSpaceForCapexCleansOtaApex) {
   TemporaryDir dest_dir;
 
-  // Create an ota_apex first
   auto ota_apex_path = StringPrintf(
       "%s/ota_apex%s", GetDecompressionDir().c_str(), kOtaApexPackageSuffix);
-  fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
-           ota_apex_path);
+  auto create_ota_apex = [&]() {
+    // Create an ota_apex first
+    fs::copy(GetTestFile("com.android.apex.compressed.v1_original.apex"),
+             ota_apex_path);
+    auto path_exists = PathExists(ota_apex_path);
+    ASSERT_TRUE(*path_exists);
+  };
+  create_ota_apex();
+
+  // Should not delete the reserved file if size passed is negative
+  ASSERT_FALSE(IsOk(ReserveSpaceForCompressedApex(-1, dest_dir.path)));
   auto path_exists = PathExists(ota_apex_path);
   ASSERT_TRUE(*path_exists);
 
   // Should delete the reserved file if size passed is 0
   ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(0, dest_dir.path)));
+  path_exists = PathExists(ota_apex_path);
+  ASSERT_FALSE(*path_exists);
+
+  create_ota_apex();
+  // Should delete the reserved file if size passed is positive
+  ASSERT_TRUE(IsOk(ReserveSpaceForCompressedApex(10, dest_dir.path)));
   path_exists = PathExists(ota_apex_path);
   ASSERT_FALSE(*path_exists);
 }
