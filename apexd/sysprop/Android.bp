@@ -7,6 +7,5 @@ sysprop_library {
   srcs: ["ApexProperties.sysprop"],
   property_owner: "Platform",
   api_packages: ["android.sysprop"],
-  ramdisk_available: true,
   recovery_available: true,
 }
