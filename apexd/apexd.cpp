@@ -3127,10 +3127,18 @@ void CollectApexInfoList(std::ostream& os,
     if (preinstalled_path.ok()) {
       preinstalled_module_path = *preinstalled_path;
     }
+
+    std::optional<int64_t> mtime;
+    struct stat stat_buf;
+    if (stat(apex.GetPath().c_str(), &stat_buf) == 0) {
+      mtime.emplace(stat_buf.st_mtime);
+    } else {
+      PLOG(WARNING) << "Failed to stat " << apex.GetPath();
+    }
     com::android::apex::ApexInfo apex_info(
         apex.GetManifest().name(), apex.GetPath(), preinstalled_module_path,
         apex.GetManifest().version(), apex.GetManifest().versionname(),
-        instance.IsPreInstalledApex(apex), is_active);
+        instance.IsPreInstalledApex(apex), is_active, mtime);
     apex_infos.emplace_back(apex_info);
   };
   for (const auto& apex : active_apexs) {
@@ -3348,7 +3356,8 @@ int OnOtaChrootBootstrapFlattenedApex() {
                               /* preinstalledModulePath= */ apex_dir,
                               /* versionCode= */ manifest->version(),
                               /* versionName= */ manifest->versionname(),
-                              /* isFactory= */ true, /* isActive= */ true);
+                              /* isFactory= */ true, /* isActive= */ true,
+                              /* lastUpdateMillis= */ 0);
     }
   }
 
