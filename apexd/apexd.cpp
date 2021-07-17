@@ -1775,7 +1775,7 @@ void SnapshotOrRestoreDeIfNeeded(const std::string& base_dir,
     }
   } else if (session.IsRollback()) {
     for (const auto& apex_name : session.GetApexNames()) {
-      if (!gInFsCheckpointMode) {
+      if (!gSupportsFsCheckpoints) {
         // Snapshot before restore so this rollback can be reverted.
         SnapshotDataDirectory(base_dir, session.GetRollbackId(), apex_name,
                               true /* pre_restore */);
@@ -2263,7 +2263,7 @@ Result<void> RevertActiveSessions(const std::string& crashing_native_process,
     }
   }
 
-  if (!gInFsCheckpointMode) {
+  if (!gSupportsFsCheckpoints) {
     auto restore_status = RestoreActivePackages();
     if (!restore_status.ok()) {
       for (auto& session : active_sessions) {
@@ -2281,7 +2281,7 @@ Result<void> RevertActiveSessions(const std::string& crashing_native_process,
   }
 
   for (auto& session : active_sessions) {
-    if (!gInFsCheckpointMode && session.IsRollback()) {
+    if (!gSupportsFsCheckpoints && session.IsRollback()) {
       // If snapshots have already been restored, undo that by restoring the
       // pre-restore snapshot.
       RestoreDePreRestoreSnapshotsIfPresent(session);
@@ -2975,7 +2975,7 @@ Result<void> MarkStagedSessionSuccessful(const int session_id) {
       return Error() << "Failed to mark session " << *session
                      << " as successful : " << cleanup_status.error();
     }
-    if (session->IsRollback() && !gInFsCheckpointMode) {
+    if (session->IsRollback() && !gSupportsFsCheckpoints) {
       DeleteDePreRestoreSnapshots(*session);
     }
     return session->UpdateStateAndCommit(SessionState::SUCCESS);
