@@ -1993,6 +1993,17 @@ void ScanStagedSessionsDirAndStage() {
       continue;
     }
 
+    // If device supports fs-checkpoint, then apex session should only be
+    // installed when in checkpoint-mode. Otherwise, we will not be able to
+    // revert /data on error.
+    if (gSupportsFsCheckpoints && !gInFsCheckpointMode) {
+      auto error_message =
+          "Cannot install apex session if not in fs-checkpoint mode";
+      LOG(ERROR) << error_message;
+      session.SetErrorMessage(error_message);
+      continue;
+    }
+
     std::vector<std::string> dirs_to_scan;
     if (session.GetChildSessionIds().empty()) {
       dirs_to_scan.push_back(std::string(gConfig->staged_session_dir) +
@@ -2519,19 +2530,46 @@ std::vector<ApexFileRef> SelectApexForActivation(
                            const ApexFileRef& a_ref,
                            const int version_b) mutable {
       const ApexFile& a = a_ref.get();
-      // APEX that provides shared library always gets activated
-      const bool provides_shared_apex_libs =
-          a.GetManifest().providesharedapexlibs();
       // If A has higher version than B, then it should be activated
       const bool higher_version = a.GetManifest().version() > version_b;
       // If A has same version as B, then data version should get activated
       const bool same_version_priority_to_data =
           a.GetManifest().version() == version_b &&
           !instance.IsPreInstalledApex(a);
-      if (provides_shared_apex_libs || higher_version ||
-          same_version_priority_to_data) {
+
+      // APEX that provides shared library are special:
+      //  - if preinstalled version is lower than data version, both versions
+      //    are activated.
+      //  - if preinstalled version is equal to data version, data version only
+      //    is activated.
+      //  - if preinstalled version is higher than data version, preinstalled
+      //    version only is activated.
+      const bool provides_shared_apex_libs =
+          a.GetManifest().providesharedapexlibs();
+      bool activate = false;
+      if (provides_shared_apex_libs) {
+        // preinstalled version gets activated in all cases except when same
+        // version as data.
+        if (instance.IsPreInstalledApex(a) &&
+            (a.GetManifest().version() != version_b)) {
+          LOG(DEBUG) << "Activating preinstalled shared libs APEX: "
+                     << a.GetManifest().name() << " " << a.GetPath();
+          activate = true;
+        }
+        // data version gets activated in all cases except when its version
+        // is lower than preinstalled version.
+        if (!instance.IsPreInstalledApex(a) &&
+            (a.GetManifest().version() >= version_b)) {
+          LOG(DEBUG) << "Activating shared libs APEX: "
+                     << a.GetManifest().name() << " " << a.GetPath();
+          activate = true;
+        }
+      } else if (higher_version || same_version_priority_to_data) {
         LOG(DEBUG) << "Selecting between two APEX: " << a.GetManifest().name()
                    << " " << a.GetPath();
+        activate = true;
+      }
+      if (activate) {
         activation_list.emplace_back(a_ref);
       }
     };
