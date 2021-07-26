@@ -267,14 +267,13 @@ Result<LoopbackDeviceUniqueFd> WaitForDevice(int num) {
   // a loop device for it. To work around this we keep polling for loop device
   // to be created until ueventd's cold boot sequence is done.
   // See comment on kLoopDeviceRetryAttempts.
-  unique_fd sysfs_fd;
   bool cold_boot_done = GetBoolProperty("ro.cold_boot_done", false);
   for (size_t i = 0; i != kLoopDeviceRetryAttempts; ++i) {
     if (!cold_boot_done) {
       cold_boot_done = GetBoolProperty("ro.cold_boot_done", false);
     }
     for (const auto& device : candidate_devices) {
-      sysfs_fd.reset(open(device.c_str(), O_RDWR | O_CLOEXEC));
+      unique_fd sysfs_fd(open(device.c_str(), O_RDWR | O_CLOEXEC));
       if (sysfs_fd.get() != -1) {
         return LoopbackDeviceUniqueFd(std::move(sysfs_fd), device);
       }
