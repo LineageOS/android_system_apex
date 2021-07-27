@@ -50,17 +50,6 @@ using android::base::StartsWith;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
-#ifndef LOOP_CONFIGURE
-// These can be removed whenever we pull in the Linux v5.8 UAPI headers
-struct loop_config {
-  __u32 fd;
-  __u32 block_size;
-  struct loop_info64 info;
-  __u64 __reserved[8];
-};
-#define LOOP_CONFIGURE 0x4C0A
-#endif
-
 namespace android {
 namespace apex {
 namespace loop {
