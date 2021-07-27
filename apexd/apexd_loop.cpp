@@ -18,7 +18,9 @@
 
 #include "apexd_loop.h"
 
+#include <array>
 #include <mutex>
+#include <string_view>
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -73,6 +75,41 @@ void LoopbackDeviceUniqueFd::MaybeCloseBad() {
       PLOG(ERROR) << "Unable to clear fd for loopback device";
     }
   }
+}
+
+Result<void> ConfigureScheduler(const std::string& device_path) {
+  if (!StartsWith(device_path, "/dev/")) {
+    return Error() << "Invalid argument " << device_path;
+  }
+
+  const std::string device_name = Basename(device_path);
+
+  const std::string sysfs_path =
+      StringPrintf("/sys/block/%s/queue/scheduler", device_name.c_str());
+  unique_fd sysfs_fd(open(sysfs_path.c_str(), O_RDWR | O_CLOEXEC));
+  if (sysfs_fd.get() == -1) {
+    return ErrnoError() << "Failed to open " << sysfs_path;
+  }
+
+  // Kernels before v4.1 only support 'noop'. Kernels [v4.1, v5.0) support
+  // 'noop' and 'none'. Kernels v5.0 and later only support 'none'.
+  static constexpr const std::array<std::string_view, 2> kNoScheduler = {
+      "none", "noop"};
+
+  int ret = 0;
+
+  for (const std::string_view& scheduler : kNoScheduler) {
+    ret = write(sysfs_fd.get(), scheduler.data(), scheduler.size());
+    if (ret > 0) {
+      break;
+    }
+  }
+
+  if (ret <= 0) {
+    return ErrnoError() << "Failed to write to " << sysfs_path;
+  }
+
+  return {};
 }
 
 Result<void> ConfigureReadAhead(const std::string& device_path) {
@@ -314,6 +351,12 @@ Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
       loop_device->device_fd.get(), target, image_offset, image_size);
   if (!configureStatus.ok()) {
     return configureStatus.error();
+  }
+
+  Result<void> sched_status = ConfigureScheduler(loop_device->name);
+  if (!sched_status.ok()) {
+    LOG(WARNING) << "Configuring I/O scheduler failed: "
+                 << sched_status.error();
   }
 
   Result<void> read_ahead_status = ConfigureReadAhead(loop_device->name);
