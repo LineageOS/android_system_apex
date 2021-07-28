@@ -60,7 +60,7 @@ android::base::Result<void> ConfigureReadAhead(const std::string& device_path);
 android::base::Result<void> PreAllocateLoopDevices(size_t num);
 
 android::base::Result<LoopbackDeviceUniqueFd> CreateLoopDevice(
-    const std::string& target, const int32_t image_offset,
+    const std::string& target, const uint32_t image_offset,
     const size_t image_size);
 
 using DestroyLoopFn =

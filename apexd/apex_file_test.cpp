@@ -55,7 +55,7 @@ TEST_P(ApexFileTest, GetOffsetOfSimplePackage) {
   Result<ApexFile> apex_file = ApexFile::Open(file_path);
   ASSERT_TRUE(apex_file.ok());
 
-  int32_t zip_image_offset;
+  uint32_t zip_image_offset;
   size_t zip_image_size;
   {
     ZipArchiveHandle handle;
@@ -69,7 +69,7 @@ TEST_P(ApexFileTest, GetOffsetOfSimplePackage) {
     ASSERT_EQ(0, rc);
 
     zip_image_offset = entry.offset;
-    EXPECT_EQ(zip_image_offset % 4096, 0);
+    EXPECT_EQ(zip_image_offset % 4096, 0U);
     zip_image_size = entry.uncompressed_length;
     EXPECT_EQ(zip_image_size, entry.compressed_length);
   }

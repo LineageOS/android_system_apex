@@ -62,7 +62,7 @@ struct FsMagic {
 constexpr const FsMagic kFsType[] = {{"f2fs", 1024, 4, "\x10\x20\xf5\xf2"},
                                      {"ext4", 1024 + 0x38, 2, "\123\357"}};
 
-Result<std::string> RetrieveFsType(borrowed_fd fd, int32_t image_offset) {
+Result<std::string> RetrieveFsType(borrowed_fd fd, uint32_t image_offset) {
   for (const auto& fs : kFsType) {
     char buf[fs.len];
     if (!ReadFullyAtOffset(fd, buf, fs.len, image_offset + fs.offset)) {
@@ -78,7 +78,7 @@ Result<std::string> RetrieveFsType(borrowed_fd fd, int32_t image_offset) {
 }  // namespace
 
 Result<ApexFile> ApexFile::Open(const std::string& path) {
-  std::optional<int32_t> image_offset;
+  std::optional<uint32_t> image_offset;
   std::optional<size_t> image_size;
   std::string manifest_content;
   std::string pubkey;

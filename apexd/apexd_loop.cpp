@@ -148,7 +148,7 @@ Result<void> PreAllocateLoopDevices(size_t num) {
 }
 
 Result<void> ConfigureLoopDevice(const int device_fd, const std::string& target,
-                                 const int32_t image_offset,
+                                 const uint32_t image_offset,
                                  const size_t image_size) {
   static bool use_loop_configure;
   static std::once_flag once_flag;
@@ -291,7 +291,7 @@ Result<LoopbackDeviceUniqueFd> WaitForDevice(int num) {
 }
 
 Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
-                                                const int32_t image_offset,
+                                                const uint32_t image_offset,
                                                 const size_t image_size) {
   unique_fd ctl_fd(open("/dev/loop-control", O_RDWR | O_CLOEXEC));
   if (ctl_fd.get() == -1) {
