@@ -55,6 +55,9 @@ struct LoopbackDeviceUniqueFd {
   int Get() { return device_fd.get(); }
 };
 
+android::base::Result<void> ConfigureQueueDepth(
+    const std::string& loop_device_path, const std::string& file_path);
+
 android::base::Result<void> ConfigureReadAhead(const std::string& device_path);
 
 android::base::Result<void> PreAllocateLoopDevices(size_t num);
