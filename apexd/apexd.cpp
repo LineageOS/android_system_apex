@@ -465,8 +465,10 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
   }
   loop::LoopbackDeviceUniqueFd loopback_device;
   for (size_t attempts = 1;; ++attempts) {
-    Result<loop::LoopbackDeviceUniqueFd> ret = loop::CreateLoopDevice(
-        full_path, apex.GetImageOffset().value(), apex.GetImageSize().value());
+    Result<loop::LoopbackDeviceUniqueFd> ret =
+        loop::CreateAndConfigureLoopDevice(full_path,
+                                           apex.GetImageOffset().value(),
+                                           apex.GetImageSize().value());
     if (ret.ok()) {
       loopback_device = std::move(*ret);
       break;
@@ -512,7 +514,10 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
           !st.ok()) {
         return st.error();
       }
-      auto create_loop_status = loop::CreateLoopDevice(hashtree_file, 0, 0);
+      auto create_loop_status =
+          loop::CreateAndConfigureLoopDevice(hashtree_file,
+                                             /* image_offset= */ 0,
+                                             /* image_size= */ 0);
       if (!create_loop_status.ok()) {
         return create_loop_status.error();
       }

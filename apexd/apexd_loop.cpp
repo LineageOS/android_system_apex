@@ -327,15 +327,15 @@ Result<LoopbackDeviceUniqueFd> WaitForDevice(int num) {
 }
 
 Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
-                                                const uint32_t image_offset,
-                                                const size_t image_size) {
+                                                uint32_t image_offset,
+                                                size_t image_size) {
   unique_fd ctl_fd(open("/dev/loop-control", O_RDWR | O_CLOEXEC));
   if (ctl_fd.get() == -1) {
     return ErrnoError() << "Failed to open loop-control";
   }
 
-  static std::mutex mlock;
-  std::lock_guard lock(mlock);
+  static std::mutex mtx;
+  std::lock_guard lock(mtx);
   int num = ioctl(ctl_fd.get(), LOOP_CTL_GET_FREE);
   if (num == -1) {
     return ErrnoError() << "Failed LOOP_CTL_GET_FREE";
@@ -347,10 +347,27 @@ Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
   }
   CHECK_NE(loop_device->device_fd.get(), -1);
 
-  Result<void> configureStatus = ConfigureLoopDevice(
+  Result<void> configure_status = ConfigureLoopDevice(
       loop_device->device_fd.get(), target, image_offset, image_size);
-  if (!configureStatus.ok()) {
-    return configureStatus.error();
+  if (!configure_status.ok()) {
+    return configure_status.error();
+  }
+
+  return std::move(loop_device);
+}
+
+Result<LoopbackDeviceUniqueFd> CreateAndConfigureLoopDevice(
+    const std::string& target, uint32_t image_offset, size_t image_size) {
+  // Do minimal amount of work while holding a mutex. We need it because
+  // acquiring + configuring a loop device is not atomic. Ideally we should
+  // pre-acquire all the loop devices in advance, so that when we run APEX
+  // activation in-parallel, we can do it without holding any lock.
+  // Unfortunately, this will require some refactoring of how we manage loop
+  // devices, and probably some new loop-control ioctls, so for the time being
+  // we just limit the scope that requires locking.
+  auto loop_device = CreateLoopDevice(target, image_offset, image_size);
+  if (!loop_device.ok()) {
+    return loop_device.error();
   }
 
   Result<void> sched_status = ConfigureScheduler(loop_device->name);
