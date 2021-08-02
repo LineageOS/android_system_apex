@@ -353,7 +353,7 @@ Result<LoopbackDeviceUniqueFd> CreateLoopDevice(const std::string& target,
     return configure_status.error();
   }
 
-  return std::move(loop_device);
+  return loop_device;
 }
 
 Result<LoopbackDeviceUniqueFd> CreateAndConfigureLoopDevice(
