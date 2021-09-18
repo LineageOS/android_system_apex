@@ -213,6 +213,7 @@ Result<void> ConfigureLoopDevice(const int device_fd, const std::string& target,
    * kernel driver will automatically enable Direct I/O when it sees that
    * condition is now met.
    */
+  bool use_buffered_io = false;
   unique_fd target_fd(open(target.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECT));
   if (target_fd.get() == -1) {
     struct statfs stbuf;
@@ -225,6 +226,7 @@ Result<void> ConfigureLoopDevice(const int device_fd, const std::string& target,
       return Error(saved_errno) << "Failed to open " << target;
     }
     LOG(WARNING) << "Fallback to buffered I/O for " << target;
+    use_buffered_io = true;
     target_fd.reset(open(target.c_str(), O_RDONLY | O_CLOEXEC));
     if (target_fd.get() == -1) {
       return ErrnoError() << "Failed to open " << target;
@@ -242,10 +244,12 @@ Result<void> ConfigureLoopDevice(const int device_fd, const std::string& target,
   if (use_loop_configure) {
     struct loop_config config;
     memset(&config, 0, sizeof(config));
-    li.lo_flags |= LO_FLAGS_DIRECT_IO;
     config.fd = target_fd.get();
     config.info = li;
     config.block_size = 4096;
+    if (!use_buffered_io) {
+        li.lo_flags |= LO_FLAGS_DIRECT_IO;
+    }
 
     if (ioctl(device_fd, LOOP_CONFIGURE, &config) == -1) {
       return ErrnoError() << "Failed to LOOP_CONFIGURE";
