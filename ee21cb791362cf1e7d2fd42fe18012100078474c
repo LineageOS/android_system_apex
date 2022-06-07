@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "ee6457d8_52cc6294",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 26658
+      },
+      "writtenOn": "2022-06-07T19:48:42Z",
+      "side": 1,
+      "message": "Picking the topic fails with\n\nApplying change number 332296...\nERROR: For 332296, could not determine the project path for project LineageOS/android_system_apex\n\nAlso picking 332302 first, copying default.xml to .repo/manigests and force syning system/apex doesn\u0027t solve it as there are no change in default.xml w.r.t. this specific repository.",
+      "revId": "ee21cb791362cf1e7d2fd42fe18012100078474c",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
