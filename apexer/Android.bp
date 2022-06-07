@@ -151,6 +151,9 @@ python_test_host {
     libs: [
         "apex_manifest",
     ],
+    test_options: {
+        unit_test: false,
+    },
 }
 
 apexer_deps_minus_go_tools = apexer_tools + [
