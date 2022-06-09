@@ -16,6 +16,24 @@
       "message": "Picking the topic fails with\n\nApplying change number 332296...\nERROR: For 332296, could not determine the project path for project LineageOS/android_system_apex\n\nAlso picking 332302 first, copying default.xml to .repo/manigests and force syning system/apex doesn\u0027t solve it as there are no change in default.xml w.r.t. this specific repository.",
       "revId": "ee21cb791362cf1e7d2fd42fe18012100078474c",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "496c485c_076c0eef",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 20162
+      },
+      "writtenOn": "2022-06-09T06:30:19Z",
+      "side": 1,
+      "message": "Skip this with `repopick -Q \"topic:S_asb_2022-06+NOT+332296\"`. The default manifest refers to the AOSP repo which already has the change anyway.\n\n@Mike - shouldn\u0027t this be excluded from the topic?",
+      "parentUuid": "ee6457d8_52cc6294",
+      "revId": "ee21cb791362cf1e7d2fd42fe18012100078474c",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
