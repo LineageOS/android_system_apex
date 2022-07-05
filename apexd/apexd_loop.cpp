@@ -280,18 +280,22 @@ Result<void> PreAllocateLoopDevices(size_t num) {
   bool found = false;
   size_t start_id = 0;
   constexpr const char* kLoopPrefix = "loop";
-  WalkDir("/dev/block", [&](const std::filesystem::directory_entry& entry) {
-    std::string devname = entry.path().filename().string();
-    if (StartsWith(devname, kLoopPrefix)) {
-      size_t id;
-      auto parse_ok = ParseUint(
-          devname.substr(std::char_traits<char>::length(kLoopPrefix)), &id);
-      if (parse_ok && id > start_id) {
-        start_id = id;
-        found = true;
-      }
-    }
-  });
+  auto walk_res =
+      WalkDir("/sys/block", [&](const std::filesystem::directory_entry& entry) {
+        std::string devname = entry.path().filename().string();
+        if (StartsWith(devname, kLoopPrefix)) {
+          size_t id;
+          auto parse_ok = ParseUint(
+              devname.substr(std::char_traits<char>::length(kLoopPrefix)), &id);
+          if (parse_ok && id > start_id) {
+            start_id = id;
+            found = true;
+          }
+        }
+      });
+  if (!walk_res.ok()) {
+    return walk_res.error();
+  }
   if (found) ++start_id;
 
   // Assumption: loop device ID [0..num) is valid.
@@ -300,9 +304,14 @@ Result<void> PreAllocateLoopDevices(size_t num) {
   // as many as CONFIG_BLK_DEV_LOOP_MIN_COUNT,
   // Within the amount of kernel-pre-allocation,
   // LOOP_CTL_ADD will fail with EEXIST
-  for (size_t id = start_id; id < num + start_id; ++id) {
+  for (size_t id = start_id, cnt = 0; cnt < num; ++id) {
     int ret = ioctl(ctl_fd.get(), LOOP_CTL_ADD, id);
-    if (ret < 0 && errno != EEXIST) {
+    if (ret > 0) {
+      LOG(INFO) << "Pre-allocated loop device " << id;
+      cnt++;
+    } else if (errno == EEXIST) {
+      LOG(WARNING) << "Loop device " << id << " already exists";
+    } else {
       return ErrnoError() << "Failed LOOP_CTL_ADD";
     }
   }

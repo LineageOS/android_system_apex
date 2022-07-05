@@ -2542,10 +2542,14 @@ int OnBootstrap() {
     LOG(ERROR) << status.error();
     return 1;
   }
-  pre_allocate = loop::PreAllocateLoopDevices(*block_count);
-  if (!pre_allocate.ok()) {
-    LOG(ERROR) << "Failed to pre-allocate loop devices for block apexes : "
-               << pre_allocate.error();
+  if (*block_count > 0) {
+    LOG(INFO) << "Pre-allocation " << *block_count
+              << " loop devices for block APEXes";
+    pre_allocate = loop::PreAllocateLoopDevices(*block_count);
+    if (!pre_allocate.ok()) {
+      LOG(ERROR) << "Failed to pre-allocate loop devices for block apexes : "
+                 << pre_allocate.error();
+    }
   }
 
   DeviceMapper& dm = DeviceMapper::Instance();
@@ -3024,18 +3028,6 @@ void OnStart() {
         ProcessCompressedApex(compressed_apex, /* is_ota_chroot= */ false);
     for (const ApexFile& apex_file : decompressed_apex) {
       activation_list.emplace_back(std::cref(apex_file));
-    }
-  }
-
-  int data_apex_cnt = std::count_if(
-      activation_list.begin(), activation_list.end(), [](const auto& a) {
-        return !ApexFileRepository::GetInstance().IsPreInstalledApex(a.get());
-      });
-  if (data_apex_cnt > 0) {
-    Result<void> pre_allocate = loop::PreAllocateLoopDevices(data_apex_cnt);
-    if (!pre_allocate.ok()) {
-      LOG(ERROR) << "Failed to pre-allocate loop devices : "
-                 << pre_allocate.error();
     }
   }
 
@@ -3536,8 +3528,10 @@ Result<int> AddBlockApex(ApexFileRepository& instance) {
 // - ActivateApexPackages
 // - setprop apexd.status: activated/ready
 int OnStartInVmMode() {
-  // waits for /dev/loop-control
-  loop::PreAllocateLoopDevices(0);
+  Result<void> loop_ready = WaitForFile("/dev/loop-control", 20s);
+  if (!loop_ready.ok()) {
+    LOG(ERROR) << loop_ready.error();
+  }
 
   // Create directories for APEX shared libraries.
   if (auto status = CreateSharedLibsApexDir(); !status.ok()) {
