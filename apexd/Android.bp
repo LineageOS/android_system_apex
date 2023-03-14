@@ -73,8 +73,19 @@ cc_defaults {
   ],
 }
 
+soong_config_module_type {
+  name: "apexd_cc_defaults",
+  module_type: "cc_defaults",
+  config_namespace: "ANDROID",
+  bool_variables: [
+    "target_board_auto",
+  ],
+  properties: [
+    "cppflags",
+  ],
+}
 
-cc_defaults {
+apexd_cc_defaults {
   name: "libapexd-deps",
   defaults: ["libapex-deps"],
   shared_libs: [
@@ -93,6 +104,11 @@ cc_defaults {
     "libxml2",
   ],
   whole_static_libs: ["com.android.sysprop.apex"],
+  soong_config_variables: {
+    target_board_auto: {
+      cppflags: ["-DDISABLE_LOOP_IO_CONFIG"],
+    },
+  },
 }
 
 aidl_interface {

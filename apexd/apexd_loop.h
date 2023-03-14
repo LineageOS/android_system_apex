@@ -55,6 +55,10 @@ struct LoopbackDeviceUniqueFd {
   int Get() { return device_fd.get(); }
 };
 
+// Exposed only for testing
+android::base::Result<uint32_t> BlockDeviceQueueDepth(
+    const std::string& file_path);
+
 android::base::Result<LoopbackDeviceUniqueFd> WaitForDevice(int num);
 
 android::base::Result<void> ConfigureQueueDepth(

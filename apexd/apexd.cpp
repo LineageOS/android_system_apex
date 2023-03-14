@@ -538,8 +538,7 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
                    << ": " << verity_data.error();
   }
   if (instance.IsBlockApex(apex)) {
-    auto root_digest =
-        instance.GetBlockApexRootDigest(apex.GetManifest().name());
+    auto root_digest = instance.GetBlockApexRootDigest(apex.GetPath());
     if (root_digest.has_value() &&
         root_digest.value() != verity_data->root_digest) {
       return Error() << "Failed to verify Apex Verity data for " << full_path
@@ -3430,7 +3429,7 @@ void CollectApexInfoList(std::ostream& os,
     }
 
     std::optional<int64_t> mtime =
-        instance.GetBlockApexLastUpdateSeconds(apex.GetManifest().name());
+        instance.GetBlockApexLastUpdateSeconds(apex.GetPath());
     if (!mtime.has_value()) {
       struct stat stat_buf;
       if (stat(apex.GetPath().c_str(), &stat_buf) == 0) {
