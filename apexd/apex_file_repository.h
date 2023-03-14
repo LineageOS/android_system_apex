@@ -104,13 +104,13 @@ class ApexFileRepository final {
   android::base::Result<const std::string> GetDataPath(
       const std::string& name) const;
 
-  // Returns root digest of an apex with the given |name| for block apexes.
+  // Returns root digest of an apex with the given |path| for block apexes.
   std::optional<std::string> GetBlockApexRootDigest(
-      const std::string& name) const;
+      const std::string& path) const;
 
-  // Returns timestamp to be used for the block apex of the given |name|.
+  // Returns timestamp to be used for the block apex of the given |path|.
   std::optional<int64_t> GetBlockApexLastUpdateSeconds(
-      const std::string& name) const;
+      const std::string& path) const;
 
   // Checks whether there is a pre-installed version of an apex with the given
   // |name|.
@@ -203,6 +203,8 @@ class ApexFileRepository final {
     std::optional<int64_t> last_update_seconds;
   };
 
+  // Use "path" as key instead of APEX name because there can be multiple
+  // versions of sharedlibs APEXes.
   std::unordered_map<std::string, BlockApexOverride> block_apex_overrides_;
 };
 

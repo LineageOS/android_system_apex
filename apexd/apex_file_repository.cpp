@@ -279,20 +279,17 @@ Result<int> ApexFileRepository::AddBlockApex(
 
     if (overrides.last_update_seconds.has_value() ||
         overrides.block_apex_root_digest.has_value()) {
-      block_apex_overrides_.emplace(name, std::move(overrides));
+      block_apex_overrides_.emplace(apex_path, std::move(overrides));
     }
 
-    // APEX should be unique.
-    for (const auto* store : {&pre_installed_store_, &data_store_}) {
-      auto it = store->find(name);
-      if (it != store->end()) {
-        return Error() << "duplicate of " << name << " found in "
-                       << it->second.GetPath();
-      }
-    }
     // Depending on whether the APEX was a factory version in the host or not,
     // put it to different stores.
     auto& store = apex_config.is_factory() ? pre_installed_store_ : data_store_;
+    // We want "uniqueness" in each store.
+    if (auto it = store.find(name); it != store.end()) {
+      return Error() << "duplicate of " << name << " found in "
+                     << it->second.GetPath();
+    }
     store.emplace(name, std::move(*apex_file));
 
     ret++;
@@ -415,8 +412,8 @@ Result<const std::string> ApexFileRepository::GetDataPath(
 }
 
 std::optional<std::string> ApexFileRepository::GetBlockApexRootDigest(
-    const std::string& name) const {
-  auto it = block_apex_overrides_.find(name);
+    const std::string& path) const {
+  auto it = block_apex_overrides_.find(path);
   if (it == block_apex_overrides_.end()) {
     return std::nullopt;
   }
@@ -424,8 +421,8 @@ std::optional<std::string> ApexFileRepository::GetBlockApexRootDigest(
 }
 
 std::optional<int64_t> ApexFileRepository::GetBlockApexLastUpdateSeconds(
-    const std::string& name) const {
-  auto it = block_apex_overrides_.find(name);
+    const std::string& path) const {
+  auto it = block_apex_overrides_.find(path);
   if (it == block_apex_overrides_.end()) {
     return std::nullopt;
   }

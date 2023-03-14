@@ -158,7 +158,7 @@ static std::string BlockdevName(dev_t dev) {
 // /dev/block/dm-9 (system-verity; dm-verity)
 // -> /dev/block/dm-1 (system_b; dm-linear)
 // -> /dev/sda26
-static Result<uint32_t> BlockDeviceQueueDepth(const std::string& file_path) {
+Result<uint32_t> BlockDeviceQueueDepth(const std::string& file_path) {
   struct stat statbuf;
   int res = stat(file_path.c_str(), &statbuf);
   if (res < 0) {
@@ -520,6 +520,9 @@ Result<LoopbackDeviceUniqueFd> CreateAndConfigureLoopDevice(
     return loop_device.error();
   }
 
+  // We skip confiruing scheduler and queue depth for automotive products.
+  // See: b/241473698.
+#ifndef DISABLE_LOOP_IO_CONFIG
   Result<void> sched_status = ConfigureScheduler(loop_device->name);
   if (!sched_status.ok()) {
     LOG(WARNING) << "Configuring I/O scheduler failed: "
@@ -530,6 +533,7 @@ Result<LoopbackDeviceUniqueFd> CreateAndConfigureLoopDevice(
   if (!qd_status.ok()) {
     LOG(WARNING) << qd_status.error();
   }
+#endif
 
   Result<void> read_ahead_status = ConfigureReadAhead(loop_device->name);
   if (!read_ahead_status.ok()) {
