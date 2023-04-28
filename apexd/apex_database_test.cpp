@@ -14,13 +14,21 @@
  * limitations under the License.
  */
 
+#include "apex_database.h"
+
+#include <android-base/macros.h>
+#include <android-base/result-gmock.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include <string>
 #include <tuple>
 
-#include <android-base/macros.h>
-#include <gtest/gtest.h>
-
-#include "apex_database.h"
+using android::base::Error;
+using android::base::Result;
+using android::base::testing::HasError;
+using android::base::testing::Ok;
+using android::base::testing::WithMessage;
 
 namespace android {
 namespace apex {
@@ -59,9 +67,9 @@ TEST(MountedApexDataTest, LinearOrder) {
     size_t loop_idx, path_idx, mount_idx, dm_idx, hash_loop_idx;
     std::tie(loop_idx, path_idx, mount_idx, dm_idx, hash_loop_idx) =
         index_fn(i);
-    data[i] =
-        MountedApexData(kLoopName[loop_idx], kPath[path_idx], kMount[mount_idx],
-                        kDm[dm_idx], kHashtreeLoopName[hash_loop_idx]);
+    data[i] = MountedApexData(0, kLoopName[loop_idx], kPath[path_idx],
+                              kMount[mount_idx], kDm[dm_idx],
+                              kHashtreeLoopName[hash_loop_idx]);
   }
 
   for (size_t i = 0; i < kCount; ++i) {
@@ -143,7 +151,7 @@ TEST(ApexDatabaseTest, AddRemovedMountedApex) {
   MountedApexDatabase db;
   ASSERT_EQ(CountPackages(db), 0u);
 
-  db.AddMountedApex(kPackage, false, kLoopName, kPath, kMountPoint, kDeviceName,
+  db.AddMountedApex(kPackage, 0, kLoopName, kPath, kMountPoint, kDeviceName,
                     kHashtreeLoopName);
   ASSERT_TRUE(Contains(db, kPackage, kLoopName, kPath, kMountPoint, kDeviceName,
                        kHashtreeLoopName));
@@ -170,8 +178,8 @@ TEST(ApexDatabaseTest, MountMultiple) {
   ASSERT_EQ(CountPackages(db), 0u);
 
   for (size_t i = 0; i < arraysize(kPackage); ++i) {
-    db.AddMountedApex(kPackage[i], false, kLoopName[i], kPath[i],
-                      kMountPoint[i], kDeviceName[i], kHashtreeLoopName[i]);
+    db.AddMountedApex(kPackage[i], 0, kLoopName[i], kPath[i], kMountPoint[i],
+                      kDeviceName[i], kHashtreeLoopName[i]);
   }
 
   ASSERT_EQ(CountPackages(db), 4u);
@@ -201,6 +209,25 @@ TEST(ApexDatabaseTest, MountMultiple) {
                               kDeviceName[3], kHashtreeLoopName[3]));
 }
 
+TEST(ApexDatabaseTest, DoIfLatest) {
+  // Check by passing error-returning handler
+  // When handler is triggered, DoIfLatest() returns the expected error.
+  auto returnError = []() -> Result<void> { return Error() << "expected"; };
+
+  MountedApexDatabase db;
+
+  // With apex: [{version=0,path=path}]
+  db.AddMountedApex("package", 0, "loop", "path", "mount", "dev", "hash");
+  ASSERT_THAT(db.DoIfLatest("package", "path", returnError),
+              HasError(WithMessage("expected")));
+
+  // With apexes: [{version=0,path=path}, {version=5,path=path5}]
+  db.AddMountedApex("package", 5, "loop5", "path5", "mount5", "dev5", "hash5");
+  ASSERT_THAT(db.DoIfLatest("package", "path", returnError), Ok());
+  ASSERT_THAT(db.DoIfLatest("package", "path5", returnError),
+              HasError(WithMessage("expected")));
+}
+
 TEST(ApexDatabaseTest, GetLatestMountedApex) {
   constexpr const char* kPackage = "package";
   constexpr const char* kLoopName = "loop";
@@ -212,11 +239,11 @@ TEST(ApexDatabaseTest, GetLatestMountedApex) {
   MountedApexDatabase db;
   ASSERT_EQ(CountPackages(db), 0u);
 
-  db.AddMountedApex(kPackage, true, kLoopName, kPath, kMountPoint, kDeviceName,
+  db.AddMountedApex(kPackage, 0, kLoopName, kPath, kMountPoint, kDeviceName,
                     kHashtreeLoopName);
 
   auto ret = db.GetLatestMountedApex(kPackage);
-  MountedApexData expected(kLoopName, kPath, kMountPoint, kDeviceName,
+  MountedApexData expected(0, kLoopName, kPath, kMountPoint, kDeviceName,
                            kHashtreeLoopName);
   ASSERT_TRUE(ret.has_value());
   ASSERT_EQ(ret->loop_name, std::string(kLoopName));
@@ -241,9 +268,9 @@ TEST(MountedApexDataTest, NoDuplicateLoopDataLoopDevices) {
   ASSERT_DEATH(
       {
         MountedApexDatabase db;
-        db.AddMountedApex("package", false, "loop", "path", "mount", "dm",
+        db.AddMountedApex("package", 0, "loop", "path", "mount", "dm",
                           "hashtree-loop1");
-        db.AddMountedApex("package2", false, "loop", "path2", "mount2", "dm2",
+        db.AddMountedApex("package2", 0, "loop", "path2", "mount2", "dm2",
                           "hashtree-loop2");
       },
       "Duplicate loop device: loop");
@@ -253,9 +280,9 @@ TEST(MountedApexDataTest, NoDuplicateLoopHashtreeLoopDevices) {
   ASSERT_DEATH(
       {
         MountedApexDatabase db;
-        db.AddMountedApex("package", false, "loop1", "path", "mount", "dm",
+        db.AddMountedApex("package", 0, "loop1", "path", "mount", "dm",
                           "hashtree-loop");
-        db.AddMountedApex("package2", false, "loop2", "path2", "mount2", "dm2",
+        db.AddMountedApex("package2", 0, "loop2", "path2", "mount2", "dm2",
                           "hashtree-loop");
       },
       "Duplicate loop device: hashtree-loop");
@@ -265,9 +292,9 @@ TEST(MountedApexDataTest, NoDuplicateLoopHashtreeAndDataLoopDevices) {
   ASSERT_DEATH(
       {
         MountedApexDatabase db;
-        db.AddMountedApex("package", false, "loop", "path", "mount", "dm",
+        db.AddMountedApex("package", 0, "loop", "path", "mount", "dm",
                           "hashtree-loop1");
-        db.AddMountedApex("package2", false, "loop2", "path2", "mount2", "dm2",
+        db.AddMountedApex("package2", 0, "loop2", "path2", "mount2", "dm2",
                           "loop");
       },
       "Duplicate loop device: loop");
@@ -277,9 +304,9 @@ TEST(MountedApexDataTest, NoDuplicateDm) {
   ASSERT_DEATH(
       {
         MountedApexDatabase db;
-        db.AddMountedApex("package", false, "loop", "path", "mount", "dm",
+        db.AddMountedApex("package", 0, "loop", "path", "mount", "dm",
                           /* hashtree_loop_name= */ "");
-        db.AddMountedApex("package2", false, "loop2", "path2", "mount2", "dm",
+        db.AddMountedApex("package2", 0, "loop2", "path2", "mount2", "dm",
                           /* hashtree_loop_name= */ "");
       },
       "Duplicate dm device: dm");

@@ -17,15 +17,16 @@
 #ifndef ANDROID_APEXD_APEX_DATABASE_H_
 #define ANDROID_APEXD_APEX_DATABASE_H_
 
-#include <map>
-#include <mutex>
-#include <optional>
-#include <string>
-#include <unordered_set>
-
 #include <android-base/logging.h>
 #include <android-base/result.h>
 #include <android-base/thread_annotations.h>
+
+#include <map>
+#include <mutex>
+#include <optional>
+#include <set>
+#include <string>
+#include <unordered_set>
 
 namespace android {
 namespace apex {
@@ -35,6 +36,7 @@ class MountedApexDatabase {
   // Stores associated low-level data for a mounted APEX. To conserve memory,
   // the APEX file isn't stored, but must be opened to retrieve specific data.
   struct MountedApexData {
+    int version = 0;        // APEX version for this mount
     std::string loop_name;  // Loop device used (fs path).
     std::string full_path;  // Full path to the apex file.
     std::string mount_point;  // Path this apex is mounted on.
@@ -48,12 +50,14 @@ class MountedApexDatabase {
     bool is_temp_mount;
 
     MountedApexData() {}
-    MountedApexData(const std::string& loop_name, const std::string& full_path,
+    MountedApexData(int version, const std::string& loop_name,
+                    const std::string& full_path,
                     const std::string& mount_point,
                     const std::string& device_name,
                     const std::string& hashtree_loop_name,
                     bool is_temp_mount = false)
-        : loop_name(loop_name),
+        : version(version),
+          loop_name(loop_name),
           full_path(full_path),
           mount_point(mount_point),
           device_name(device_name),
@@ -61,6 +65,9 @@ class MountedApexDatabase {
           is_temp_mount(is_temp_mount) {}
 
     inline bool operator<(const MountedApexData& rhs) const {
+      if (version != rhs.version) {
+        return version < rhs.version;
+      }
       int compare_val = loop_name.compare(rhs.loop_name);
       if (compare_val < 0) {
         return true;
@@ -90,30 +97,28 @@ class MountedApexDatabase {
   };
 
   template <typename... Args>
-  inline void AddMountedApexLocked(const std::string& package, bool latest,
-                                   Args&&... args)
+  inline void AddMountedApexLocked(const std::string& package, Args&&... args)
       REQUIRES(mounted_apexes_mutex_) {
     auto it = mounted_apexes_.find(package);
     if (it == mounted_apexes_.end()) {
       auto insert_it =
-          mounted_apexes_.emplace(package, std::map<MountedApexData, bool>());
+          mounted_apexes_.emplace(package, std::set<MountedApexData>());
       CHECK(insert_it.second);
       it = insert_it.first;
     }
 
-    auto check_it = it->second.emplace(
-        MountedApexData(std::forward<Args>(args)...), latest);
+    auto check_it =
+        it->second.emplace(MountedApexData(std::forward<Args>(args)...));
     CHECK(check_it.second);
 
-    CheckAtMostOneLatest();
     CheckUniqueLoopDm();
   }
 
   template <typename... Args>
-  inline void AddMountedApex(const std::string& package, bool latest,
-                             Args&&... args) REQUIRES(!mounted_apexes_mutex_) {
+  inline void AddMountedApex(const std::string& package, Args&&... args)
+      REQUIRES(!mounted_apexes_mutex_) {
     std::lock_guard lock(mounted_apexes_mutex_);
-    AddMountedApexLocked(package, latest, args...);
+    AddMountedApexLocked(package, args...);
   }
 
   inline void RemoveMountedApex(const std::string& package,
@@ -126,46 +131,32 @@ class MountedApexDatabase {
       return;
     }
 
-    auto& pkg_map = it->second;
+    auto& pkg_set = it->second;
 
-    for (auto pkg_it = pkg_map.begin(); pkg_it != pkg_map.end(); ++pkg_it) {
-      if (pkg_it->first.full_path == full_path &&
-          pkg_it->first.is_temp_mount == match_temp_mounts) {
-        pkg_map.erase(pkg_it);
+    for (auto pkg_it = pkg_set.begin(); pkg_it != pkg_set.end(); ++pkg_it) {
+      if (pkg_it->full_path == full_path &&
+          pkg_it->is_temp_mount == match_temp_mounts) {
+        pkg_set.erase(pkg_it);
         return;
       }
     }
   }
 
-  inline void SetLatest(const std::string& package,
-                        const std::string& full_path)
+  // Invoke handler if the passed package is the latest
+  inline base::Result<void> DoIfLatest(
+      const std::string& package, const std::string& full_path,
+      const std::function<base::Result<void>()>& handler)
       REQUIRES(!mounted_apexes_mutex_) {
     std::lock_guard lock(mounted_apexes_mutex_);
-    SetLatestLocked(package, full_path);
-  }
-
-  inline void SetLatestLocked(const std::string& package,
-                              const std::string& full_path)
-      REQUIRES(mounted_apexes_mutex_) {
     auto it = mounted_apexes_.find(package);
     CHECK(it != mounted_apexes_.end());
+    CHECK(!it->second.empty());
 
-    auto& pkg_map = it->second;
-
-    for (auto pkg_it = pkg_map.begin(); pkg_it != pkg_map.end(); ++pkg_it) {
-      if (pkg_it->first.full_path == full_path) {
-        pkg_it->second = true;
-        for (auto reset_it = pkg_map.begin(); reset_it != pkg_map.end();
-             ++reset_it) {
-          if (reset_it != pkg_it) {
-            reset_it->second = false;
-          }
-        }
-        return;
-      }
+    auto latest = it->second.rbegin();
+    if (latest->full_path == full_path) {
+      return handler();
     }
-
-    LOG(FATAL) << "Did not find " << package << " " << full_path;
+    return {};
   }
 
   template <typename T>
@@ -173,13 +164,15 @@ class MountedApexDatabase {
                                   bool match_temp_mounts = false) const
       REQUIRES(!mounted_apexes_mutex_) {
     std::lock_guard lock(mounted_apexes_mutex_);
-    auto it = mounted_apexes_.find(package);
-    if (it == mounted_apexes_.end()) {
+    auto outer_it = mounted_apexes_.find(package);
+    if (outer_it == mounted_apexes_.end()) {
       return;
     }
-    for (auto& pair : it->second) {
-      if (pair.first.is_temp_mount == match_temp_mounts) {
-        handler(pair.first, pair.second);
+    for (auto it = outer_it->second.rbegin(), end = outer_it->second.rend();
+         it != end; it++) {
+      if (it->is_temp_mount == match_temp_mounts) {
+        bool latest = (it == outer_it->second.rbegin());
+        handler(*it, latest);
       }
     }
   }
@@ -190,9 +183,11 @@ class MountedApexDatabase {
       REQUIRES(!mounted_apexes_mutex_) {
     std::lock_guard lock(mounted_apexes_mutex_);
     for (const auto& pkg : mounted_apexes_) {
-      for (const auto& pair : pkg.second) {
-        if (pair.first.is_temp_mount == match_temp_mounts) {
-          handler(pkg.first, pair.first, pair.second);
+      for (auto it = pkg.second.rbegin(), end = pkg.second.rend(); it != end;
+           it++) {
+        if (it->is_temp_mount == match_temp_mounts) {
+          bool latest = (it == pkg.second.rbegin());
+          handler(pkg.first, *it, latest);
         }
       }
     }
@@ -227,7 +222,7 @@ class MountedApexDatabase {
   //         b) do not have to const_cast (over std::set)
   // TODO(b/158467745): This structure (and functions) need to be guarded by
   //   locks.
-  std::map<std::string, std::map<MountedApexData, bool>> mounted_apexes_
+  std::map<std::string, std::set<MountedApexData>> mounted_apexes_
       GUARDED_BY(mounted_apexes_mutex_);
 
   // To fix thread safety negative capability warning
@@ -238,34 +233,22 @@ class MountedApexDatabase {
   };
   mutable Mutex mounted_apexes_mutex_;
 
-  inline void CheckAtMostOneLatest() REQUIRES(mounted_apexes_mutex_) {
-    for (const auto& apex_set : mounted_apexes_) {
-      size_t count = 0;
-      for (const auto& pair : apex_set.second) {
-        if (pair.second) {
-          count++;
-        }
-      }
-      CHECK_LE(count, 1u) << apex_set.first;
-    }
-  }
-
   inline void CheckUniqueLoopDm() REQUIRES(mounted_apexes_mutex_) {
     std::unordered_set<std::string> loop_devices;
     std::unordered_set<std::string> dm_devices;
     for (const auto& apex_set : mounted_apexes_) {
-      for (const auto& pair : apex_set.second) {
-        if (pair.first.loop_name != "") {
-          CHECK(loop_devices.insert(pair.first.loop_name).second)
-              << "Duplicate loop device: " << pair.first.loop_name;
+      for (const auto& mount : apex_set.second) {
+        if (mount.loop_name != "") {
+          CHECK(loop_devices.insert(mount.loop_name).second)
+              << "Duplicate loop device: " << mount.loop_name;
         }
-        if (pair.first.device_name != "") {
-          CHECK(dm_devices.insert(pair.first.device_name).second)
-              << "Duplicate dm device: " << pair.first.device_name;
+        if (mount.device_name != "") {
+          CHECK(dm_devices.insert(mount.device_name).second)
+              << "Duplicate dm device: " << mount.device_name;
         }
-        if (pair.first.hashtree_loop_name != "") {
-          CHECK(loop_devices.insert(pair.first.hashtree_loop_name).second)
-              << "Duplicate loop device: " << pair.first.hashtree_loop_name;
+        if (mount.hashtree_loop_name != "") {
+          CHECK(loop_devices.insert(mount.hashtree_loop_name).second)
+              << "Duplicate loop device: " << mount.hashtree_loop_name;
         }
       }
     }

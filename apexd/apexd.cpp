@@ -549,7 +549,8 @@ Result<MountedApexData> MountPackageImpl(const ApexFile& apex,
   }
 
   std::string block_device = loopback_device.name;
-  MountedApexData apex_data(loopback_device.name, apex.GetPath(), mount_point,
+  MountedApexData apex_data(apex.GetManifest().version(), loopback_device.name,
+                            apex.GetPath(), mount_point,
                             /* device_name = */ "",
                             /* hashtree_loop_name = */ "",
                             /* is_temp_mount */ temp_mount);
@@ -675,7 +676,7 @@ Result<MountedApexData> VerifyAndTempMountPackage(
       PLOG(ERROR) << "Failed to unlink " << hashtree_file;
     }
   } else {
-    gMountedApexes.AddMountedApex(apex.GetManifest().name(), false, *ret);
+    gMountedApexes.AddMountedApex(apex.GetManifest().name(), *ret);
   }
   return ret;
 }
@@ -1152,7 +1153,7 @@ Result<void> MountPackage(const ApexFile& apex, const std::string& mount_point,
     return ret.error();
   }
 
-  gMountedApexes.AddMountedApex(apex.GetManifest().name(), false, *ret);
+  gMountedApexes.AddMountedApex(apex.GetManifest().name(), *ret);
   return {};
 }
 
@@ -1369,7 +1370,6 @@ Result<void> ActivatePackageImpl(const ApexFile& apex_file,
   // See whether we think it's active, and do not allow to activate the same
   // version. Also detect whether this is the highest version.
   // We roll this into a single check.
-  bool is_newest_version = true;
   bool version_found_mounted = false;
   {
     uint64_t new_version = manifest.version();
@@ -1384,10 +1384,6 @@ Result<void> ActivatePackageImpl(const ApexFile& apex_file,
               new_version) {
             version_found_mounted = true;
             version_found_active = latest;
-          }
-          if (static_cast<uint64_t>(other_apex->GetManifest().version()) >
-              new_version) {
-            is_newest_version = false;
           }
         });
     // If the package provides shared libraries to other APEXs, we need to
@@ -1413,30 +1409,18 @@ Result<void> ActivatePackageImpl(const ApexFile& apex_file,
     }
   }
 
-  // For packages providing shared libraries, avoid creating a bindmount since
-  // there is no use for the /apex/<package_name> directory. However, mark the
-  // highest version as latest so that the latest version of the package can be
-  // properly reported to PackageManager.
-  if (manifest.providesharedapexlibs()) {
-    if (is_newest_version) {
-      gMountedApexes.SetLatest(manifest.name(), apex_file.GetPath());
-    }
-  } else {
-    bool mounted_latest = false;
-    // Bind mount the latest version to /apex/<package_name>, unless the
-    // package provides shared libraries to other APEXs.
-    if (is_newest_version) {
-      const Result<void>& update_st = apexd_private::BindMount(
-          apexd_private::GetActiveMountPoint(manifest), mount_point);
-      mounted_latest = update_st.has_value();
-      if (!update_st.ok()) {
-        return Error() << "Failed to update package " << manifest.name()
-                       << " to version " << manifest.version() << " : "
-                       << update_st.error();
-      }
-    }
-    if (mounted_latest) {
-      gMountedApexes.SetLatest(manifest.name(), apex_file.GetPath());
+  // Bind mount the latest version to /apex/<package_name>, unless the
+  // package provides shared libraries to other APEXs.
+  if (!manifest.providesharedapexlibs()) {
+    auto st = gMountedApexes.DoIfLatest(
+        manifest.name(), apex_file.GetPath(), [&]() -> Result<void> {
+          return apexd_private::BindMount(
+              apexd_private::GetActiveMountPoint(manifest), mount_point);
+        });
+    if (!st.ok()) {
+      return Error() << "Failed to update package " << manifest.name()
+                     << " to version " << manifest.version() << " : "
+                     << st.error();
     }
   }
 

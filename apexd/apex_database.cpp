@@ -210,10 +210,11 @@ Result<MountedApexData> ResolveMountInfo(
       if (!backing_file.ok()) {
         return backing_file.error();
       }
-      auto result = MountedApexData(block.DevPath(), *backing_file, mount_point,
-                                    /* device_name= */ "",
-                                    /* hashtree_loop_name= */ "",
-                                    /* is_temp_mount */ temp_mount);
+      MountedApexData result;
+      result.loop_name = block.DevPath();
+      result.full_path = *backing_file;
+      result.mount_point = mount_point;
+      result.is_temp_mount = temp_mount;
       NormalizeIfDeleted(&result);
       return result;
     }
@@ -292,13 +293,9 @@ void MountedApexDatabase::PopulateFromMounts(
     }
 
     auto [package, version] = ParseMountPoint(mount_point);
-    AddMountedApexLocked(package, false, *mount_data);
+    mount_data->version = version;
+    AddMountedApexLocked(package, *mount_data);
 
-    auto active = active_versions[package] < version;
-    if (active) {
-      active_versions[package] = version;
-      SetLatestLocked(package, mount_data->full_path);
-    }
     LOG(INFO) << "Found " << mount_point << " backed by"
               << (mount_data->deleted ? " deleted " : " ") << "file "
               << mount_data->full_path;
