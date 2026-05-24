@@ -67,6 +67,16 @@ inline Result<void> ReplaceFiles(const std::string& from_path,
   namespace fs = std::filesystem;
 
   std::error_code error_code;
+  bool exists = fs::exists(from_path, error_code);
+  if (error_code) {
+    return android::base::Error() << "Failed to check if " << from_path
+                                  << " exists: " << error_code.message();
+  }
+  if (!exists) {
+    return android::base::Error()
+           << "Source path " << from_path << " does not exist";
+  }
+
   fs::remove_all(to_path, error_code);
   if (error_code) {
     return Error() << "Failed to delete existing files at " << to_path << " : "
